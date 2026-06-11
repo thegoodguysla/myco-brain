@@ -1,0 +1,19 @@
+Myco Brain
+Copyright 2026 The Good Guys LA
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This software includes third-party open-source components, each under its own
+license:
+
+- pgvector (PostgreSQL extension)            — PostgreSQL License
+- @modelcontextprotocol/sdk                  — MIT License
+- pg (node-postgres)                          — MIT License
+- pgvector (npm client)                       — MIT License
+- zod                                         — MIT License
+- @anthropic-ai/sdk                           — MIT License
+- dotenv                                      — BSD-2-Clause License
+
+Postgres and the pgvector Docker image are distributed under their respective
+licenses. Optional model providers (OpenAI, Anthropic, Ollama) are accessed
+over the network and are not bundled with this software.

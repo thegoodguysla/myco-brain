@@ -1,0 +1,69 @@
+{
+  "name": "@mycobrain/mcp-server",
+  "version": "1.0.0",
+  "description": "Self-hosted memory layer for AI agents — MCP server backed by Postgres + pgvector + knowledge graph",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mycobrain-mcp": "dist/index.js",
+    "mycobrain-ingest": "dist/ingest-cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thegoodguysla/myco-brain.git"
+  },
+  "homepage": "https://github.com/thegoodguysla/myco-brain",
+  "bugs": {
+    "url": "https://github.com/thegoodguysla/myco-brain/issues"
+  },
+  "keywords": [
+    "mcp",
+    "memory",
+    "ai",
+    "agents",
+    "claude",
+    "cursor",
+    "knowledge-graph",
+    "postgres",
+    "pgvector",
+    "llm"
+  ],
+  "license": "Apache-2.0",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "dev": "tsx watch src/index.ts",
+    "dev:sse": "tsx watch src/index-sse.ts",
+    "start": "node dist/index.js",
+    "start:sse": "node dist/index-sse.js",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "vitest run src/smoke-test.e2e.ts",
+    "test:e2e:memory": "vitest run src/smoke-memory.e2e.ts",
+    "test:load:get-related": "tsx src/get-related.load.ts",
+    "worker:extract": "tsx src/extraction-worker.ts",
+    "migrate": "node dist/migrate.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.28.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "pg": "^8.11.5",
+    "pgvector": "^0.2.0",
+    "zod": "^3.23.8",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.5",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.5.0",
+    "tsx": "^4.15.7",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

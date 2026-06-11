@@ -1,0 +1,93 @@
+# Myco Brain — single-command quickstart
+# Copy, paste, run: docker compose up -d
+#
+# Prerequisites: Docker + Docker Compose v2
+# No API keys required to start. BM25 full-text search works immediately.
+# Add BRAIN_OPENAI_API_KEY for vector embeddings (semantic search).
+# Knowledge graph (entity extraction) — pick either, both keyless-optional:
+#   • Local + free: run Ollama on your host and set
+#     BRAIN_OLLAMA_BASE_URL=http://host.docker.internal:11434
+#   • Hosted: set BRAIN_ANTHROPIC_API_KEY
+#
+# The default workspace/agent are seeded by the migrations (see
+# supabase/migrations/*seed_default_local_workspace.sql). The defaults below
+# match that seed, so a bare `docker compose up` works with zero config.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: myco_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: brain
+      POSTGRES_DB: brain
+    ports:
+      - "5432:5432"
+    volumes:
+      - myco_postgres_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brain -d brain"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mcp-server:
+    image: myco-brain-mcp-server
+    # Build this image locally instead of trying to pull it from a registry
+    # (avoids the noisy "pull access denied" message on first run).
+    pull_policy: build
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: myco_mcp
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
+      BRAIN_WORKSPACE_ID: ${BRAIN_WORKSPACE_ID:-00000000-0000-0000-0000-000000000001}
+      BRAIN_API_KEY: ${BRAIN_API_KEY:-brain_00000000-0000-0000-0000-000000000001_00000000-0000-0000-0000-0000000000a1_localdev}
+      BRAIN_OPENAI_API_KEY: ${BRAIN_OPENAI_API_KEY:-}
+      BRAIN_ANTHROPIC_API_KEY: ${BRAIN_ANTHROPIC_API_KEY:-}
+      BRAIN_COHERE_API_KEY: ${BRAIN_COHERE_API_KEY:-}
+      BRAIN_HEALTH_PORT: "8080"
+    ports:
+      - "8080:8080"
+    stdin_open: true
+    tty: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  extraction-worker:
+    image: myco-brain-mcp-server
+    pull_policy: build
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: myco_extraction_worker
+    restart: unless-stopped
+    command: ["node", "dist/extraction-worker.js"]
+    environment:
+      DATABASE_URL: postgresql://brain:brain@postgres:5432/brain
+      BRAIN_WORKSPACE_ID: ${BRAIN_WORKSPACE_ID:-00000000-0000-0000-0000-000000000001}
+      BRAIN_API_KEY: ${BRAIN_API_KEY:-brain_00000000-0000-0000-0000-000000000001_00000000-0000-0000-0000-0000000000a1_localdev}
+      # Knowledge graph extraction provider (optional — without either, chunks
+      # stay searchable via BM25 but no entities are extracted):
+      #   Local/free via Ollama on the host:
+      BRAIN_OLLAMA_BASE_URL: ${BRAIN_OLLAMA_BASE_URL:-}
+      BRAIN_OLLAMA_MODEL: ${BRAIN_OLLAMA_MODEL:-llama3.2:3b}
+      #   or hosted via Anthropic:
+      BRAIN_ANTHROPIC_API_KEY: ${BRAIN_ANTHROPIC_API_KEY:-}
+      BRAIN_EXTRACTION_POLL_MS: "5000"
+      BRAIN_EXTRACTION_BATCH_SIZE: "10"
+      BRAIN_EXTRACTION_MAX_ATTEMPTS: "3"
+    # Lets the container reach an Ollama running on the host machine.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  myco_postgres_data:

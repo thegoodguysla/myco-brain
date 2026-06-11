@@ -1,0 +1,12 @@
+dist/**/*.test.js
+dist/**/*.test.js.map
+dist/**/*.test.d.ts
+dist/**/*.test.d.ts.map
+dist/**/*.e2e.js
+dist/**/*.e2e.js.map
+dist/**/*.e2e.d.ts
+dist/**/*.e2e.d.ts.map
+dist/**/*.load.js
+dist/**/*.load.js.map
+dist/**/*.load.d.ts
+dist/**/*.load.d.ts.map

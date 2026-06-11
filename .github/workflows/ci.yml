@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-typecheck-build:
+    name: Lint, typecheck & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: brain
+          POSTGRES_PASSWORD: brain
+          POSTGRES_DB: brain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: mcp-server
+    env:
+      DATABASE_URL: postgresql://brain:brain@localhost:5432/brain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+
+  # Proves the README/quickstart promise: a fresh `docker compose up` boots the
+  # stack, the migrations + seed apply, and every one of the 11 MCP tools the
+  # demos rely on actually works. If this is red, the quickstart is broken for
+  # new users — so it gates merges. This replaces the old docker-build job
+  # (which only checked the image compiled, not that the product runs).
+  quickstart-e2e:
+    name: Quickstart end-to-end (Docker)
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://brain:brain@localhost:5432/brain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Boots postgres+pgvector (which applies every migration, including the
+      # seed, via the docker-entrypoint-initdb.d mount) and builds + starts the
+      # mcp-server image. A failure here means the image build or compose path
+      # is broken — the exact thing a new user would hit first.
+      - name: Boot the stack (docker compose up --build)
+        run: docker compose up -d --build
+
+      - name: Wait for Postgres to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U brain -d brain; then
+              echo "postgres ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "postgres did not become ready"; docker compose logs postgres; exit 1
+
+      - name: Verify migrations + seed applied
+        run: |
+          WS=$(docker compose exec -T postgres psql -U brain -d brain -tAc "SELECT count(*) FROM workspaces")
+          echo "workspaces seeded: $WS"
+          test "$WS" -ge 1 || { echo "default workspace not seeded"; exit 1; }
+
+      - name: Build mcp-server (host) for the e2e harness
+        working-directory: mcp-server
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run quickstart demos against the live stack
+        working-directory: mcp-server
+        run: node test/quickstart-e2e.mjs
+
+      - name: Run dedup + provenance benchmark
+        run: node examples/benchmark/run.mjs
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

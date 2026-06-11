@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "myco-brain": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--network",
+        "host",
+        "-e",
+        "DATABASE_URL=postgresql://brain:brain@localhost:5432/brain",
+        "myco-brain-mcp-server"
+      ]
+    }
+  }
+}

@@ -1,0 +1,29 @@
+# Railway deployment image — build context is myco-brain/ root so migrations are accessible.
+# Runs migrations on startup then starts the SSE (HTTP) server.
+
+FROM node:20-slim AS builder
+
+WORKDIR /app
+
+COPY mcp-server/package.json mcp-server/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY mcp-server/tsconfig.json .
+COPY mcp-server/src ./src
+
+RUN npm run build
+RUN npm prune --omit=dev
+
+FROM node:20-slim
+
+WORKDIR /app
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json .
+
+# Include migrations so the runner can apply them before the server starts
+COPY supabase/migrations ./migrations
+
+# Migrate then start — safe to re-run; already-applied migrations are skipped
+CMD ["sh", "-c", "node dist/migrate.js && node dist/index-sse.js"]
