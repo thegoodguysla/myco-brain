@@ -13,6 +13,7 @@ import type pg from "pg";
 import { withSession, type SessionContext } from "../db.js";
 import { createReranker, type RerankerStrategy } from "../reranker.js";
 import { activeEmbeddingTable } from "../embed.js";
+import { hyobjectVisibleSql } from "../sharing.js";
 
 export const RecallMemoryInput = z.object({
   query: z.string().min(1).describe("Natural language query for recall"),
@@ -139,7 +140,7 @@ async function fetchMemoryChunks(
           h.agent_id
         FROM chunks c
         JOIN ${activeEmbeddingTable()} cos ON cos.chunk_id = c.chunk_id
-        JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+        JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
         WHERE h.processing_state = 'done'
           ${agentFilter}
         ORDER BY cos.embedding <=> $1::vector
@@ -153,7 +154,7 @@ async function fetchMemoryChunks(
           ts_rank(h.content_tsv, replace(plainto_tsquery($4)::text, '&', '|')::tsquery) AS rank,
           h.agent_id
         FROM hyobjects h
-        JOIN chunks c ON c.hyobject_id = h.hyobject_id
+        JOIN chunks c ON c.hyobject_id = h.hyobject_id AND ${hyobjectVisibleSql("h")}
         WHERE h.content_tsv @@ replace(plainto_tsquery($4)::text, '&', '|')::tsquery
           AND h.processing_state = 'done'
           ${agentFilter}
@@ -190,7 +191,7 @@ async function fetchMemoryChunks(
       ts_rank(h.content_tsv, replace(plainto_tsquery($1)::text, '&', '|')::tsquery) AS score,
       h.agent_id
     FROM hyobjects h
-    JOIN chunks c ON c.hyobject_id = h.hyobject_id
+    JOIN chunks c ON c.hyobject_id = h.hyobject_id AND ${hyobjectVisibleSql("h")}
     WHERE h.content_tsv @@ replace(plainto_tsquery($1)::text, '&', '|')::tsquery
       AND h.processing_state = 'done'
       ${agentFilter}

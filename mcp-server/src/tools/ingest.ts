@@ -189,9 +189,10 @@ export async function ingest(
       const res = await client.query(
         `INSERT INTO hyobjects
            (workspace_id, type_id, subtype_id, name, storage_uri, mime_type,
-            sharing_type_id, processing_state, sha256, content_tsv)
+            sharing_type_id, processing_state, sha256, content_tsv, agent_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-                 CASE WHEN $10::text IS NOT NULL THEN to_tsvector('english', $10::text) ELSE NULL END)
+                 CASE WHEN $10::text IS NOT NULL THEN to_tsvector('english', $10::text) ELSE NULL END,
+                 $11)
          ON CONFLICT (workspace_id, sha256) DO NOTHING
          RETURNING hyobject_id, processing_state, name, storage_uri`,
         [
@@ -205,6 +206,9 @@ export async function ingest(
           processingState,
           sha256,
           textContent,
+          // Creator attribution — private (sharing_type 1) documents are only
+          // visible to the agent that created them.
+          ctx.actorId,
         ]
       );
 
@@ -256,12 +260,13 @@ export async function ingest(
       if (!deduped) {
         await client.query(
           `INSERT INTO hyobjects
-             (workspace_id, type_id, subtype_id, name, sharing_type_id, processing_state)
-           VALUES ($1, 80, 200, $2, $3, 'done')`,
+             (workspace_id, type_id, subtype_id, name, sharing_type_id, processing_state, agent_id)
+           VALUES ($1, 80, 200, $2, $3, 'done', $4)`,
           [
             ctx.workspaceId,
             `Ingested: ${name ?? "unnamed"}`,
             sharingTypeId,
+            ctx.actorId,
           ]
         );
       }

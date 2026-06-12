@@ -15,6 +15,9 @@ import {
   persistSchemaProposals,
   schemaProposalMinConfidence,
 } from "./schema-proposals.js";
+import { rescoreEntityRelation } from "./confidence.js";
+import { supersedeContradictedRelations } from "./contradiction.js";
+import { autoPromoteSchemaProposals } from "./schema-promotion.js";
 
 type ExtractionStatus = "pending" | "processing" | "succeeded" | "failed";
 
@@ -356,6 +359,7 @@ async function persistSuccess(
     // Relations: connect promoted entities to each other (the entity↔entity
     // graph edges that turn this from a vector store into a knowledge graph).
     let relationsAdded = 0;
+    let relationsSuperseded = 0;
     for (const rel of output.relations ?? []) {
       const relConfidence = clampConfidence(rel.confidence);
       if (relConfidence < threshold) continue;
@@ -383,19 +387,80 @@ async function persistSuccess(
       // canonical graph edge is written.
       if (REQUIRE_HUMAN_REVIEW) continue;
 
-      // entity_relations is the promoted graph edge. De-dupe identical edges
-      // (same pair + predicate) that may recur across chunks.
-      const ins = await client.query(
-        `INSERT INTO entity_relations
-           (workspace_id, entity1_id, entity2_id, predicate, source_hyobject_id, confidence)
-         SELECT $1, $2, $3, $4, $5, $6
-         WHERE NOT EXISTS (
-           SELECT 1 FROM entity_relations
-            WHERE workspace_id = $1 AND entity1_id = $2 AND entity2_id = $3 AND predicate = $4
-         )`,
-        [chunk.workspaceId, subjectId, objectId, rel.predicate, chunk.hyobjectId, relConfidence],
+      // entity_relations is the promoted graph edge. Find-or-create (one
+      // ACTIVE edge per pair + predicate — a superseded edge stays closed;
+      // re-assertion opens a fresh validity interval), keeping the id so
+      // evidence can link to it.
+      const existing = await client.query<{ id: string }>(
+        `SELECT id FROM entity_relations
+          WHERE workspace_id = $1 AND entity1_id = $2 AND entity2_id = $3 AND predicate = $4
+            AND (valid_to IS NULL OR valid_to > now())
+          LIMIT 1`,
+        [chunk.workspaceId, subjectId, objectId, rel.predicate],
       );
-      if (ins.rowCount && ins.rowCount > 0) relationsAdded++;
+      let relationRowId = existing.rows[0]?.id ?? null;
+      if (!relationRowId) {
+        const ins = await client.query<{ id: string }>(
+          `INSERT INTO entity_relations
+             (workspace_id, entity1_id, entity2_id, predicate, source_hyobject_id, confidence)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id`,
+          [chunk.workspaceId, subjectId, objectId, rel.predicate, chunk.hyobjectId, relConfidence],
+        );
+        relationRowId = ins.rows[0].id;
+        relationsAdded++;
+      }
+
+      // Compounding confidence: every sighting is recorded as evidence — the
+      // old NOT EXISTS de-dupe silently DISCARDED re-extractions, which is
+      // exactly the corroboration signal. One evidence row per source
+      // document per edge (re-extractions from other chunks of the same doc
+      // are not independent corroboration), then the edge's confidence is
+      // recomputed from all independent sources, so it RISES as new documents
+      // agree.
+      await client.query(
+        `INSERT INTO relation_evidence
+           (workspace_id, relation_kind, relation_row_id, source_node_id, target_node_id,
+            predicate, evidence_hyobject_id, evidence_chunk_id, confidence, evidence_kind)
+         SELECT $1, 'entity_relation', $2, $3, $4, $5, $6, $7, $8, 'extraction'
+         WHERE NOT EXISTS (
+           SELECT 1 FROM relation_evidence
+            WHERE workspace_id = $1 AND relation_kind = 'entity_relation'
+              AND relation_row_id = $2 AND evidence_hyobject_id = $6
+         )`,
+        [
+          chunk.workspaceId,
+          relationRowId,
+          subjectId,
+          objectId,
+          rel.predicate,
+          chunk.hyobjectId,
+          chunk.chunkId,
+          relConfidence,
+        ],
+      );
+      await rescoreEntityRelation(
+        client,
+        chunk.workspaceId,
+        subjectId,
+        objectId,
+        rel.predicate,
+      );
+
+      // Contradiction: a confident observation on a FUNCTIONAL predicate
+      // supersedes (closes + weakens, never overwrites) any active edge that
+      // asserts a different current object — recorded in the claims ledger.
+      const conflict = await supersedeContradictedRelations(
+        client,
+        chunk.workspaceId,
+        subjectId,
+        rel.predicate,
+        objectId,
+        relConfidence,
+        chunk.hyobjectId,
+        EXTRACTOR_LABEL,
+      );
+      relationsSuperseded += conflict.superseded;
     }
 
     // Dynamic schema (phase 1): record kinds/predicates we observed that the
@@ -445,9 +510,9 @@ async function persistSuccess(
            extracted_at = now(),
            last_error = NULL,
            metadata = COALESCE(metadata, '{}'::jsonb)
-             || jsonb_build_object('entity_count', $2::int, 'promoted_count', $3::int, 'relation_count', $4::int, 'schema_proposed_count', $5::int)
+             || jsonb_build_object('entity_count', $2::int, 'promoted_count', $3::int, 'relation_count', $4::int, 'schema_proposed_count', $5::int, 'superseded_count', $6::int)
        WHERE chunk_id = $1`,
-      [chunk.chunkId, output.entities.length, promoted, relationsAdded, schemaProposed],
+      [chunk.chunkId, output.entities.length, promoted, relationsAdded, schemaProposed, relationsSuperseded],
     );
   });
 }
@@ -494,13 +559,30 @@ async function runOnce(
   return batch.length;
 }
 
+// Full dynamic schema: promote corroborated proposals into the live catalogs
+// (gated by BRAIN_SCHEMA_AUTO_PROMOTE; see schema-promotion.ts). Returns true
+// when something promoted, so the caller can refresh its catalog caches —
+// a newly promoted entity kind is usable by the very next batch.
+async function maybeAutoPromoteSchema(): Promise<boolean> {
+  const promoted = await withSession(auth.ctx, (client) =>
+    autoPromoteSchemaProposals(client, auth.ctx.workspaceId),
+  );
+  for (const p of promoted) {
+    console.log(
+      JSON.stringify({ event: "schema_auto_promoted", type: p.proposal_type, name: p.name, applied_id: p.applied_id }),
+    );
+  }
+  return promoted.length > 0;
+}
+
 async function main(): Promise<void> {
-  const kindMap = await mapEntityKindIds();
-  const knownPredicates = await mapKnownPredicates();
+  let kindMap = await mapEntityKindIds();
+  let knownPredicates = await mapKnownPredicates();
   const once = process.argv.includes("--once");
 
   if (once) {
     await runOnce(kindMap, knownPredicates);
+    await maybeAutoPromoteSchema();
     await closePool();
     return;
   }
@@ -508,6 +590,10 @@ async function main(): Promise<void> {
   while (true) {
     try {
       const processed = await runOnce(kindMap, knownPredicates);
+      if (processed > 0 && (await maybeAutoPromoteSchema())) {
+        kindMap = await mapEntityKindIds();
+        knownPredicates = await mapKnownPredicates();
+      }
       if (processed === 0) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       }

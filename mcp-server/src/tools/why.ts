@@ -9,6 +9,7 @@
  */
 import { z } from "zod";
 import { withSession, type SessionContext } from "../db.js";
+import { hyobjectVisibleSql } from "../sharing.js";
 
 export const WhyInput = z.object({
   hyobject_id: z
@@ -131,6 +132,21 @@ interface PairwiseDirectRelation {
   source_hyobject_id: string | null;
   created_at: string;
   vc_trail: VcEntry[];
+  // Compounding confidence: how many distinct source documents back this
+  // edge, and how its confidence moved as evidence accumulated (derived from
+  // the vc audit trail — deterministic history, e.g. "0.8 → 0.86 → 0.93").
+  independent_sources: number;
+  confidence_trend: string | null;
+}
+
+// A contradicted edge: closed (valid_to set) and weakened, never deleted —
+// the contradiction stays visible instead of being silently overwritten.
+interface PairwiseSupersededRelation {
+  id: string;
+  predicate: string;
+  confidence: number | null;
+  valid_from: string;
+  valid_to: string;
 }
 
 interface PairwiseSharedDocument {
@@ -146,6 +162,7 @@ interface PairwiseProvenance {
   entity_a: PairwiseEntity;
   entity_b: PairwiseEntity;
   direct_relations: PairwiseDirectRelation[];
+  superseded_relations: PairwiseSupersededRelation[];
   shared_documents: PairwiseSharedDocument[];
 }
 
@@ -194,6 +211,29 @@ export async function why(
       const directRelations: PairwiseDirectRelation[] = [];
       for (const row of directRes.rows) {
         const vcTrail = await loadVcTrail(client, "entity_relations", row.id, input.limit_vc);
+
+        // Compounding confidence: distinct backing documents + the audited
+        // confidence history for this edge.
+        const evRes = await client.query<{ n: number }>(
+          `SELECT COUNT(DISTINCT evidence_hyobject_id)::int AS n
+             FROM relation_evidence
+            WHERE relation_kind = 'entity_relation' AND relation_row_id = $1
+              AND evidence_hyobject_id IS NOT NULL`,
+          [row.id]
+        );
+        const trendRes = await client.query<{ v: string }>(
+          `SELECT new_value #>> '{}' AS v
+             FROM vc
+            WHERE table_name = 'entity_relations' AND row_id = $1
+              AND column_name = 'confidence' AND new_value IS NOT NULL
+            ORDER BY changed_at ASC, vc_id ASC`,
+          [row.id]
+        );
+        const trendValues = trendRes.rows
+          .map((r) => Number(r.v))
+          .filter((n) => Number.isFinite(n))
+          .map((n) => String(Math.round(n * 1000) / 1000));
+
         directRelations.push({
           id: row.id,
           predicate: row.predicate,
@@ -201,8 +241,34 @@ export async function why(
           source_hyobject_id: row.source_hyobject_id ?? null,
           created_at: row.created_at,
           vc_trail: vcTrail,
+          independent_sources: Number(evRes.rows[0]?.n ?? 0),
+          confidence_trend:
+            trendValues.length >= 2 ? trendValues.join(" → ") : null,
         });
       }
+
+      // Contradicted (superseded) edges between the pair — visible history.
+      const supersededRes = await client.query(
+        `SELECT id, predicate, confidence, valid_from, valid_to
+           FROM entity_relations
+          WHERE (
+              (entity1_id = $1 AND entity2_id = $2)
+              OR
+              (entity1_id = $2 AND entity2_id = $1)
+            )
+            AND valid_to IS NOT NULL AND valid_to <= now()
+          ORDER BY valid_to DESC
+          LIMIT $3`,
+        [input.entity_a_id, input.entity_b_id, input.limit_vc]
+      );
+      const supersededRelations: PairwiseSupersededRelation[] =
+        supersededRes.rows.map((r) => ({
+          id: r.id,
+          predicate: r.predicate,
+          confidence: r.confidence == null ? null : Number(r.confidence),
+          valid_from: r.valid_from,
+          valid_to: r.valid_to,
+        }));
 
       const sharedRes = await client.query(
         `SELECT
@@ -212,7 +278,7 @@ export async function why(
            COUNT(*) FILTER (WHERE em.entity_id = $2)::int AS b_mentions,
            ARRAY_AGG(em.id::text) AS mention_row_ids
          FROM entity_mentions em
-         JOIN hyobjects h ON h.hyobject_id = em.hyobject_id
+         JOIN hyobjects h ON h.hyobject_id = em.hyobject_id AND ${hyobjectVisibleSql("h")}
          WHERE em.entity_id IN ($1, $2)
          GROUP BY em.hyobject_id, h.name, h.created_at
          HAVING COUNT(DISTINCT em.entity_id) = 2
@@ -257,6 +323,7 @@ export async function why(
             created_at: rowB.created_at,
           },
           direct_relations: directRelations,
+          superseded_relations: supersededRelations,
           shared_documents: sharedDocuments,
         },
       };
@@ -271,7 +338,7 @@ export async function why(
         `SELECT hyobject_id, name, created_at, processing_state, storage_uri,
                 sha256, mime_type, byte_size, page_count, language,
                 author_from_metadata, created_from_source_at
-         FROM hyobjects WHERE hyobject_id = $1`,
+         FROM hyobjects WHERE hyobject_id = $1 AND ${hyobjectVisibleSql("hyobjects")}`,
         [input.hyobject_id]
       );
       if (res.rows.length === 0) throw new Error("hyobject not found");
@@ -364,7 +431,7 @@ export async function why(
       const row = await client.query(
         `SELECT sha256, mime_type, byte_size, page_count, language,
                 author_from_metadata, created_from_source_at
-         FROM hyobjects WHERE hyobject_id = $1`,
+         FROM hyobjects WHERE hyobject_id = $1 AND ${hyobjectVisibleSql("hyobjects")}`,
         [input.hyobject_id]
       );
       if (row.rows[0]) {

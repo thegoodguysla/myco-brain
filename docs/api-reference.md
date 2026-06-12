@@ -16,6 +16,11 @@ environment, not per call):
 All write tools deduplicate and record provenance automatically. Tool contracts
 are stable within a major version (see [CHANGELOG](../CHANGELOG.md)).
 
+**Privacy:** documents ingested with `sharing_type_id = 1` (`private`) are
+visible only to the agent that created them (and service-role callers) across
+all read tools. The default (`2`, `workspace`) is visible to every agent in
+the workspace.
+
 ---
 
 ## Retrieval
@@ -89,9 +94,11 @@ Memory-health snapshot.
 
 - *(no required inputs)*
 
-**Returns:** `{ summary, storage, graph, review, schema, provenance, reliability, agents }` — e.g. *"12 documents · 48 graph facts (40 entities, 8 relations) · 100% source-backed · 0 pending review · Brain proposed 2 new types from your data (pending review)."*
+**Returns:** `{ summary, storage, graph, review, schema, evidence, provenance, reliability, agents }` — e.g. *"12 documents · 48 graph facts (40 entities, 8 relations) · 100% source-backed · 0 pending review · Brain proposed 2 new types from your data (pending review) · evidence: 3 multi-source facts, 1 superseded."*
 
-The `schema` section is dynamic schema (phase 1): `{ proposed_types_pending, entity_kinds_pending, relation_types_pending }` — entity kinds and relationship types the extraction worker observed in your data that aren't in the catalogs yet (`schema_proposals`, `state='pending'`). Promotion is manual.
+The `schema` section is dynamic schema: `{ proposed_types_pending, entity_kinds_pending, relation_types_pending, types_auto_promoted }` — entity kinds and relationship types the extraction worker observed in your data that aren't in the catalogs yet (`schema_proposals`), plus how many earned catalog promotion under the corroboration rules. Promotion is manual by default (`BRAIN_SCHEMA_AUTO_PROMOTE=1` opts in).
+
+The `evidence` section is **compounding confidence**: `{ relations_corroborated, relations_superseded, mean_relation_confidence }` — facts backed by 2+ independent source documents, facts closed by contradiction (superseded, never overwritten), and the mean confidence across active graph edges. In pairwise `brain_why`, each direct relation additionally reports `independent_sources` and an audited `confidence_trend` (e.g. `"0.8 → 0.86"`), and `superseded_relations` lists contradicted history.
 
 ---
 

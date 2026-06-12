@@ -23,6 +23,7 @@ import {
   recordRetrievalError,
   recordRetrievalSuccess,
 } from "../retrieval-observability.js";
+import { hyobjectVisibleSql } from "../sharing.js";
 
 export const ContextPackInput = z.object({
   query: z.string().min(1).describe("Natural language query"),
@@ -323,7 +324,7 @@ async function fetchChunks(
           ROW_NUMBER() OVER (ORDER BY cos.embedding <=> $1::vector) AS rn_vec
         FROM chunks c
         JOIN ${embedTable} cos ON cos.chunk_id = c.chunk_id
-        JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+        JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
         WHERE h.processing_state = 'done'
           ${typeFilter}
         ORDER BY cos.embedding <=> $1::vector
@@ -338,7 +339,7 @@ async function fetchChunks(
           ts_rank(h.content_tsv, replace(plainto_tsquery('english', $3)::text, '&', '|')::tsquery) AS rank,
           ROW_NUMBER() OVER (ORDER BY ts_rank(h.content_tsv, replace(plainto_tsquery('english', $3)::text, '&', '|')::tsquery) DESC) AS rn_text
         FROM chunks c
-        JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+        JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
         WHERE h.content_tsv @@ replace(plainto_tsquery('english', $3)::text, '&', '|')::tsquery
           AND h.processing_state = 'done'
           ${typeFilter}
@@ -368,7 +369,7 @@ async function fetchChunks(
         r.rrf_score AS score,
         h.storage_uri
       FROM rrf r
-      JOIN hyobjects h ON h.hyobject_id = r.hyobject_id
+      JOIN hyobjects h ON h.hyobject_id = r.hyobject_id AND ${hyobjectVisibleSql("h")}
       ORDER BY rrf_score DESC
       LIMIT $2
     `;
@@ -411,7 +412,7 @@ async function fetchChunks(
       ts_rank(h.content_tsv, replace(plainto_tsquery('english', $1)::text, '&', '|')::tsquery) AS score,
       h.storage_uri
     FROM chunks c
-    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
     WHERE h.content_tsv @@ replace(plainto_tsquery('english', $1)::text, '&', '|')::tsquery
       AND h.processing_state = 'done'
       ${typeFilter}
@@ -719,7 +720,7 @@ async function fetchRelationalContext(
     const res = await client.query(
       `SELECT hyobject_id, name
        FROM hyobjects
-       WHERE hyobject_id = ANY($1::uuid[])`,
+       WHERE hyobject_id = ANY($1::uuid[]) AND ${hyobjectVisibleSql("hyobjects")}`,
       [uniqueHyobjectIds]
     );
     for (const row of res.rows) {

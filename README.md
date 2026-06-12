@@ -334,6 +334,8 @@ myco-brain/
 ├── mcp-server/              # TypeScript MCP server + bulk-ingest CLI
 ├── supabase/migrations/     # 42 versioned SQL migrations
 ├── docs/quickstart.md       # setup guide
+├── evals/
+│   └── longmemeval/         # LongMemEval benchmark harness (run it yourself)
 ├── examples/
 │   ├── demo-corpus/         # sample interconnected docs to ingest
 │   └── benchmark/           # reproducible dedup + provenance benchmark
@@ -345,6 +347,24 @@ myco-brain/
 ├── NOTICE
 └── LICENSE                  # Apache-2.0
 ```
+
+## Benchmark — run it yourself
+
+Myco Brain scores **73.6% end-to-end QA accuracy on the complete 500-question
+[LongMemEval](https://github.com/xiaowu0162/LongMemEval) `oracle` subset** (no
+sampling) with **100% evidence-retrieval recall** — reader `gpt-4o-mini`, judge
+`gpt-4o`. The harness ships in this repo, so the number is reproducible, not
+asserted:
+
+```bash
+cd evals/longmemeval && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ../..
+OPENAI_API_KEY=sk-... DATABASE_URL=postgresql://brain:brain@localhost:5432/brain \
+  evals/longmemeval/.venv/bin/python3 -m evals.longmemeval.run \
+  --examples 500 --subset longmemeval_oracle --judge-model gpt-4o
+```
+
+Methodology, per-category breakdown, and cheaper sample commands:
+[evals/longmemeval/README.md](evals/longmemeval/README.md).
 
 ## Cloud Waitlist
 

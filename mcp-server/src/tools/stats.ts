@@ -44,6 +44,17 @@ export interface StatsResult {
     proposed_types_pending: number;
     entity_kinds_pending: number;
     relation_types_pending: number;
+    // Full dynamic schema: proposals that earned catalog promotion under the
+    // corroboration rules (BRAIN_SCHEMA_AUTO_PROMOTE).
+    types_auto_promoted: number;
+  };
+  evidence: {
+    // Compounding confidence: facts backed by 2+ independent source documents,
+    // facts superseded by contradiction (closed, never overwritten), and the
+    // mean confidence across active graph edges.
+    relations_corroborated: number;
+    relations_superseded: number;
+    mean_relation_confidence: number | null;
   };
   provenance: {
     proposed_facts_total: number;
@@ -127,6 +138,35 @@ export async function stats(
       "SELECT count(*)::int AS n FROM schema_proposals WHERE state = 'pending' AND proposal_type = 'relation_type'"
     );
 
+    const schemaTypesAutoPromoted = await count(
+      client,
+      "SELECT count(*)::int AS n FROM schema_proposals WHERE state = 'auto_promoted' AND proposal_type IN ('entity_kind','relation_type')"
+    );
+
+    const relationsCorroborated = await count(
+      client,
+      `SELECT count(*)::int AS n FROM (
+         SELECT relation_row_id FROM relation_evidence
+          WHERE relation_kind = 'entity_relation' AND relation_row_id IS NOT NULL
+          GROUP BY relation_row_id
+         HAVING COUNT(DISTINCT evidence_hyobject_id) >= 2
+       ) corroborated`
+    );
+    const relationsSuperseded = await count(
+      client,
+      "SELECT count(*)::int AS n FROM entity_relations WHERE valid_to IS NOT NULL AND valid_to <= now()"
+    );
+    let meanRelationConfidence: number | null = null;
+    try {
+      const avg = await client.query(
+        `SELECT round(avg(confidence), 3) AS m FROM entity_relations
+          WHERE valid_to IS NULL OR valid_to > now()`
+      );
+      meanRelationConfidence = avg.rows[0]?.m == null ? null : Number(avg.rows[0].m);
+    } catch {
+      meanRelationConfidence = null;
+    }
+
     const proposedTotal = await count(
       client,
       "SELECT count(*)::int AS n FROM proposed_entities"
@@ -161,6 +201,10 @@ export async function stats(
       schemaTypesPending > 0
         ? ` · Brain proposed ${schemaTypesPending} new type${schemaTypesPending === 1 ? "" : "s"} from your data (pending review)`
         : "";
+    const evidenceClause =
+      relationsCorroborated > 0 || relationsSuperseded > 0
+        ? ` · evidence: ${relationsCorroborated} multi-source fact${relationsCorroborated === 1 ? "" : "s"}, ${relationsSuperseded} superseded`
+        : "";
 
     const summary =
       `${documents} documents · ${entities + relations} graph facts ` +
@@ -168,7 +212,8 @@ export async function stats(
       `${sourceBackedPct}% of proposed facts source-backed · ` +
       `${entitiesPending + relationsPending} pending review · ` +
       `${memoryWrites} idempotent writes` +
-      schemaClause;
+      schemaClause +
+      evidenceClause;
 
     return {
       workspace_id: ctx.workspaceId,
@@ -183,6 +228,12 @@ export async function stats(
         proposed_types_pending: schemaTypesPending,
         entity_kinds_pending: schemaEntityKindsPending,
         relation_types_pending: schemaRelationTypesPending,
+        types_auto_promoted: schemaTypesAutoPromoted,
+      },
+      evidence: {
+        relations_corroborated: relationsCorroborated,
+        relations_superseded: relationsSuperseded,
+        mean_relation_confidence: meanRelationConfidence,
       },
       provenance: {
         proposed_facts_total: proposedTotal,

@@ -110,8 +110,12 @@ export function collectSchemaProposals(
 }
 
 /**
- * Insert proposals as pending rows. Returns how many were newly created
- * (already-proposed names no-op via the unique constraint).
+ * Insert proposals as pending rows; repeat sightings COMPOUND instead of
+ * no-oping. A sighting from a different document than the last one recorded
+ * increments seen_count (the corroboration signal auto-promotion reads — see
+ * schema-promotion.ts) and keeps the max confidence; repeat sightings from
+ * the same document only refresh last_seen_at. Returns how many proposals
+ * were newly created.
  */
 export async function persistSchemaProposals(
   client: pg.PoolClient,
@@ -122,25 +126,33 @@ export async function persistSchemaProposals(
 ): Promise<number> {
   let created = 0;
   for (const c of candidates) {
-    const res = await client.query(
+    const res = await client.query<{ inserted: boolean }>(
       `INSERT INTO schema_proposals
          (workspace_id, proposal_type, name, description, source_hyobject_id,
           extracted_by, confidence, state)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
-       ON CONFLICT (workspace_id, proposal_type, name) DO NOTHING`,
+       ON CONFLICT (workspace_id, proposal_type, name) DO UPDATE SET
+         seen_count = schema_proposals.seen_count
+           + CASE WHEN schema_proposals.source_hyobject_id IS DISTINCT FROM EXCLUDED.source_hyobject_id
+                  THEN 1 ELSE 0 END,
+         confidence = GREATEST(schema_proposals.confidence, EXCLUDED.confidence),
+         source_hyobject_id = COALESCE(EXCLUDED.source_hyobject_id, schema_proposals.source_hyobject_id),
+         last_seen_at = now()
+       WHERE schema_proposals.state = 'pending'
+       RETURNING (xmax = 0) AS inserted`,
       [
         workspaceId,
         c.proposal_type,
         c.name,
         c.proposal_type === "entity_kind"
-          ? `Entity kind observed in your data but not in the catalog (proposed by the extraction worker; promotion is manual).`
-          : `Relationship type observed in your data but not in the catalog (proposed by the extraction worker; promotion is manual).`,
+          ? `Entity kind observed in your data but not in the catalog (proposed by the extraction worker).`
+          : `Relationship type observed in your data but not in the catalog (proposed by the extraction worker).`,
         sourceHyobjectId,
         extractedBy,
         c.confidence,
       ]
     );
-    created += res.rowCount ?? 0;
+    if (res.rows[0]?.inserted) created++;
   }
   return created;
 }

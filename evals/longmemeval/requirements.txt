@@ -1,0 +1,12 @@
+# Dataset access: we download the extension-less benchmark files directly via
+# huggingface_hub (the `datasets` loader can't read them — see dataset.py).
+huggingface_hub>=0.23
+psycopg[binary,pool]>=3.1
+openai>=1.30
+numpy>=1.26
+tqdm>=4.66
+python-dotenv>=1.0
+typer>=0.12
+rich>=13.7
+# Offline unit tests (no DB / network / LLM).
+pytest>=8.0

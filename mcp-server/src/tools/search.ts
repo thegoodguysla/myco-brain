@@ -32,6 +32,7 @@ import {
   recordRetrievalError,
   recordRetrievalSuccess,
 } from "../retrieval-observability.js";
+import { hyobjectVisibleSql } from "../sharing.js";
 
 export const SearchInput = z.object({
   query: z.string().min(1),
@@ -213,7 +214,7 @@ async function hybridSearch(
       h.created_at,
       h.storage_uri
     FROM chunks c
-    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
     JOIN ${embedTable} cos ON cos.chunk_id = c.chunk_id
     WHERE ${whereClause}
     ORDER BY cos.embedding <=> $${vecParam}::vector
@@ -488,7 +489,7 @@ async function fullTextSearch(
       h.created_at,
       h.storage_uri
     FROM chunks c
-    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
     WHERE ${whereClause}
     ${orderClause}
     LIMIT $${limitParam}
@@ -500,7 +501,7 @@ async function fullTextSearch(
   const countSql = `
     SELECT COUNT(*) AS cnt
     FROM chunks c
-    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
+    JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
     WHERE ${whereClause}
   `;
   const countParams = params.slice(0, params.length - 2);

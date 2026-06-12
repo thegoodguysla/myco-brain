@@ -5,6 +5,68 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.0] — 2026-06-12
+
+### Added
+- **Full dynamic schema — gated auto-promotion.** The propose-and-surface
+  loop (phase 1) now completes: proposals corroborated by enough DISTINCT
+  documents (`seen_count`, tracked per source) at high confidence
+  **auto-promote into the live catalogs** (`entity_kinds` /
+  `relation_types`) — and the promoted type is immediately usable by the next
+  extraction batch. Strictly opt-in (`BRAIN_SCHEMA_AUTO_PROMOTE=1`, thresholds
+  `BRAIN_SCHEMA_PROMOTE_MIN_SEEN`=3 / `BRAIN_SCHEMA_PROMOTE_MIN_CONFIDENCE`=0.8);
+  strict curation mode always wins. Audit trail lives on the proposal row
+  (`extracted_by`, evidence counts, `state='auto_promoted'`, `applied_id`,
+  `reviewed_at`); `brain_stats.schema` gains `types_auto_promoted`. Covered by
+  the full-loop gated check `npm run test:schema-promotion` (default-off
+  verified, promotion verified, promoted-kind-becomes-usable verified — no LLM
+  required) plus 8 unit tests. Migration `20260612000049` (idempotent) adds
+  the corroboration counter.
+- **Compounding confidence — the full engine.** A fact's confidence now
+  **rises with independent corroboration and falls on contradiction**, and
+  contradicted facts are **superseded, never silently overwritten**:
+  - *Corroboration*: every relation sighting is recorded as
+    `relation_evidence` (one row per source document per edge — re-extractions
+    used to be silently discarded); the edge's confidence is recomputed with a
+    damped noisy-OR anchored on the strongest source (α=0.4, cap 0.95; a
+    single-source edge keeps exactly the confidence extraction gave it).
+  - *Contradiction*: on **functional predicates** (one current object per
+    subject — defaults `works for`, `reports to`, `located in`; extend via
+    `BRAIN_FUNCTIONAL_PREDICATES`), a confident conflicting observation closes
+    the old edge (`valid_to`), weakens it (`conf × (1 − α·c)`), and records the
+    supersession in the **claims ledger** (`superseded_by` chain) — history
+    stays queryable.
+  - *Surfaces*: `brain_why` pairwise provenance gains `independent_sources`,
+    a `confidence_trend` derived from the `vc` audit trail (e.g.
+    `"0.8 → 0.86"`), and a `superseded_relations` list (contradictions are
+    visible, not hidden). `brain_stats` gains an `evidence` section
+    (corroborated / superseded counts, mean edge confidence) and a summary
+    clause. All additive — no tool contract changes.
+  - Covered by `npm run test:compounding` (full lifecycle end-to-end against a
+    live DB, no LLM needed) plus 17 new unit tests; proven live with
+    `ollama:llama3.2:3b` (two documents asserting different employers → old
+    edge `[SUPERSEDED]`, new edge `[ACTIVE]`, claims chain recorded). The
+    LongMemEval harness never runs extraction, so the benchmark number is
+    structurally unaffected.
+- **Per-object sharing enforcement.** Documents marked `private`
+  (`sharing_type_id = 1`) are now actually private: readable only by the agent
+  that created them (plus service-role callers) across `brain_search`,
+  `brain_context_pack`, `brain_recall_memory`, `brain_why`, `brain_neighbors`,
+  and `brain_get_related`. Ingest now records the creating agent
+  (`hyobjects.agent_id`); private rows with no recorded creator stay hidden
+  from non-service callers (conservative by design). Workspace/org/public/
+  llm_readable documents behave exactly as before. Covered by a two-agent
+  visibility-matrix check (`npm run test:sharing`, no LLM required).
+- **LongMemEval benchmark harness ships in-repo** (`evals/longmemeval/`) so the
+  headline number is reproducible by anyone, not asserted: **73.6% end-to-end
+  QA accuracy on the complete 500-question `oracle` subset** (no sampling) with
+  **100% evidence-retrieval recall** — reader `gpt-4o-mini`, judge `gpt-4o`.
+  Self-contained Python harness (own `requirements.txt`, offline unit tests,
+  per-question workspace isolation, automatic purge); methodology and
+  per-category breakdown in `evals/longmemeval/README.md`; README gains a
+  "Benchmark — run it yourself" section.
+
+
 ## [1.1.0] — 2026-06-11
 
 ### Fixed

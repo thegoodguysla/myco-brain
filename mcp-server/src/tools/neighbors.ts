@@ -13,6 +13,7 @@
  */
 import { z } from "zod";
 import { withSession, type SessionContext } from "../db.js";
+import { hyobjectVisibleSql } from "../sharing.js";
 
 export const NeighborsInput = z.object({
   node_id: z.string().uuid().describe("hyobject_id, entity_id, people_id, or agent_id"),
@@ -201,7 +202,7 @@ export async function neighbors(
         `SELECT em.id, em.entity_id, em.hyobject_id, em.confidence, em.created_at,
                 h.name, h.type_id
          FROM entity_mentions em
-         JOIN hyobjects h ON h.hyobject_id = em.hyobject_id
+         JOIN hyobjects h ON h.hyobject_id = em.hyobject_id AND ${hyobjectVisibleSql("h")}
          WHERE em.entity_id = $1
          LIMIT $2`,
         [input.node_id, input.limit]
@@ -230,7 +231,7 @@ export async function neighbors(
       const hRes = await client.query(
         `SELECT hyobject_id, name, type_id, agent_id
          FROM hyobjects
-         WHERE agent_id = $1 AND workspace_id = $2
+         WHERE agent_id = $1 AND workspace_id = $2 AND ${hyobjectVisibleSql("hyobjects")}
          ORDER BY created_at DESC
          LIMIT $3`,
         [input.node_id, ctx.workspaceId, input.limit]
@@ -387,7 +388,7 @@ export async function neighbors(
       .map((n) => n.id);
     if (hyobjectIds.length > 0) {
       const nameRes = await client.query(
-        `SELECT hyobject_id, name, type_id FROM hyobjects WHERE hyobject_id = ANY($1::uuid[])`,
+        `SELECT hyobject_id, name, type_id FROM hyobjects WHERE hyobject_id = ANY($1::uuid[]) AND ${hyobjectVisibleSql("hyobjects")}`,
         [hyobjectIds]
       );
       for (const row of nameRes.rows) {

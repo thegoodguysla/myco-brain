@@ -9,6 +9,7 @@
 import { z } from "zod";
 import type { PoolClient } from "pg";
 import { withSession, type SessionContext } from "../db.js";
+import { hyobjectVisibleSql } from "../sharing.js";
 
 export const GetRelatedInput = z.object({
   subject_id: z.string().uuid(),
@@ -151,7 +152,7 @@ async function loadSubject(
   id: string
 ): Promise<RelatedResult["subject"] | null> {
   if (kind === "hyobject") {
-    const res = await client.query(`SELECT hyobject_id, name FROM hyobjects WHERE hyobject_id = $1`, [id]);
+    const res = await client.query(`SELECT hyobject_id, name FROM hyobjects WHERE hyobject_id = $1 AND ${hyobjectVisibleSql("hyobjects")}`, [id]);
     if (res.rows.length === 0) return null;
     return { id: res.rows[0].hyobject_id, kind, name: res.rows[0].name };
   }
@@ -500,7 +501,7 @@ async function loadNodeNames(client: PoolClient, ids: string[]): Promise<Map<str
   if (ids.length === 0) return map;
 
   const hy = await client.query(
-    `SELECT hyobject_id AS id, name FROM hyobjects WHERE hyobject_id = ANY($1::uuid[])`,
+    `SELECT hyobject_id AS id, name FROM hyobjects WHERE hyobject_id = ANY($1::uuid[]) AND ${hyobjectVisibleSql("hyobjects")}`,
     [ids]
   );
   for (const row of hy.rows) map.set(row.id, row.name ?? null);

@@ -22,6 +22,21 @@ direction, not a contract. Issues and PRs that move these forward are welcome.
   (`nomic-embed-text` on Ollama, `BRAIN_EMBED_PROVIDER=ollama`), alongside the
   existing OpenAI path. Both keyless full-text and keyless semantic search now
   work with zero hosted dependencies.
+- **Dynamic schema (full)** — the extraction worker proposes new entity kinds
+  and relationship types it observes in your data (`schema_proposals`,
+  surfaced by `brain_stats`), and — under explicit opt-in
+  (`BRAIN_SCHEMA_AUTO_PROMOTE=1`) — proposals corroborated across enough
+  independent documents auto-promote into the live catalogs with a full audit
+  trail. The schema evolves with your domain instead of being fixed up front;
+  promotion stays manual by default, and strict curation mode always wins.
+- **Compounding confidence** — a fact's confidence **rises** as independent
+  sources corroborate it and **falls** when contradicted; on single-valued
+  ("functional") predicates the contradicted fact is **superseded — closed and
+  weakened, never silently overwritten** — with the supersession recorded in
+  the claims ledger. `brain_why` shows each fact's independent source count,
+  its audited confidence trend, and any superseded history; `brain_stats`
+  reports corroborated/superseded counts. Memory that gets more reliable the
+  more it sees.
 
 ## Next — near-term
 
@@ -29,20 +44,10 @@ direction, not a contract. Issues and PRs that move these forward are welcome.
   can run yourself, so retrieval quality is measured, not asserted.
 - **Richer relationship extraction** — better predicate accuracy and direction,
   and a recommended local model profile for higher-quality graphs.
-- **Compounding confidence (phase 1)** — surface how much independent evidence
-  supports each fact ("seen in N sources") as a visible signal.
 
 ## Later — the bigger bets
 
-- **Dynamic schema (full)** — phase 1 ships now: the extraction worker proposes
-  new entity kinds and relationship types it observes in your data
-  (`schema_proposals`, surfaced by `brain_stats`; promotion is manual). The
-  full version auto-promotes proposals under confidence rules with an audit
-  trail, so the schema evolves with your domain instead of being fixed up
-  front.
-- **Compounding confidence (full)** — a fact's confidence rises as independent
-  evidence accumulates and falls when contradicted; older facts are superseded,
-  not silently overwritten. Memory that gets more reliable the more it sees.
+
 - **More ingestion sources** — first-class connectors beyond files and repos.
 - **Managed cloud** — hosted, multi-tenant Myco for teams that would rather not
   operate Postgres themselves. Currently **waitlist only** at
