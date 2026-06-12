@@ -72,6 +72,19 @@ describe("extraction-worker.lib", () => {
     expect(out.entities.every((e) => e.confidence === 0.55)).toBe(true);
   });
 
+  it("fakeExtractEntities marks Orgz-prefixed tokens as confident organizations", () => {
+    const out = fakeExtractEntities("OrgzAcme partnered with Bob.");
+    const org = out.entities.find((e) => e.name === "OrgzAcme");
+    expect(org).toEqual({
+      name: "OrgzAcme",
+      kind: "organization",
+      aliases: [],
+      confidence: 0.9,
+    });
+    const bob = out.entities.find((e) => e.name === "Bob");
+    expect(bob?.kind).toBe("concept");
+  });
+
   it("normalizers handle edge values", () => {
     expect(normalizeName("   ")).toBeNull();
     expect(normalizeKind("")).toBe("concept");

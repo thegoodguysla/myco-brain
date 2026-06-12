@@ -1,7 +1,7 @@
 {
   "name": "@mycobrain/mcp-server",
-  "version": "1.0.0",
-  "description": "Self-hosted memory layer for AI agents — MCP server backed by Postgres + pgvector + knowledge graph",
+  "version": "1.1.0",
+  "description": "Self-hosted memory layer for AI agents \u2014 MCP server backed by Postgres + pgvector + knowledge graph",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -44,6 +44,10 @@
     "test": "vitest run",
     "test:e2e": "vitest run src/smoke-test.e2e.ts",
     "test:e2e:memory": "vitest run src/smoke-memory.e2e.ts",
+    "test:direction": "node test/extraction-direction-check.mjs",
+    "test:dynamic-schema": "node test/dynamic-schema-check.mjs",
+    "test:strict-mode": "node test/strict-mode-check.mjs",
+    "test:local-embeddings": "node test/local-embeddings-check.mjs",
     "test:load:get-related": "tsx src/get-related.load.ts",
     "worker:extract": "tsx src/extraction-worker.ts",
     "migrate": "node dist/migrate.js"

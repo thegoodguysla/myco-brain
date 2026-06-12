@@ -13,7 +13,7 @@ import { z } from "zod";
 import type pg from "pg";
 import { withSession, type SessionContext } from "../db.js";
 import { createReranker, type RerankerStrategy } from "../reranker.js";
-import { embedQuery } from "../embed.js";
+import { embedQuery, activeEmbeddingTable } from "../embed.js";
 import { compactChunksToTokenBudget } from "./context-budget.js";
 import {
   computeRetrievalMetadataStats,
@@ -28,9 +28,12 @@ export const ContextPackInput = z.object({
   query: z.string().min(1).describe("Natural language query"),
   embedding: z
     .array(z.number())
-    .length(1536)
+    .min(1)
     .optional()
-    .describe("Pre-computed query embedding (1536 dims). If omitted, full-text search only."),
+    .describe(
+      "Pre-computed query embedding (1536 dims for OpenAI, 768 for Ollama). " +
+        "If omitted, the server embeds the query, or uses full-text only."
+    ),
   limit: z
     .number()
     .int()
@@ -300,7 +303,10 @@ async function fetchChunks(
   input: ContextPackInput
 ): Promise<ChunkResult[]> {
   if (input.embedding) {
-    // Hybrid search: vector similarity + full-text, RRF fusion
+    // Hybrid search: vector similarity + full-text, RRF fusion.
+    // Embeddings live in a per-provider table (chunks_openai3small / 1536 or
+    // chunks_ollama_nomic / 768); name is from a fixed allowlist, not user input.
+    const embedTable = activeEmbeddingTable();
     const typeFilter =
       input.hyobject_types && input.hyobject_types.length > 0
         ? `AND h.type_id = ANY($4::int[])`
@@ -316,7 +322,7 @@ async function fetchChunks(
           1 - (cos.embedding <=> $1::vector) AS similarity,
           ROW_NUMBER() OVER (ORDER BY cos.embedding <=> $1::vector) AS rn_vec
         FROM chunks c
-        JOIN chunks_openai3small cos ON cos.chunk_id = c.chunk_id
+        JOIN ${embedTable} cos ON cos.chunk_id = c.chunk_id
         JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
         WHERE h.processing_state = 'done'
           ${typeFilter}

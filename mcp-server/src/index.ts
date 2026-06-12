@@ -65,7 +65,7 @@ const TOOLS: Tool[] = [
         embedding: {
           type: "array",
           items: { type: "number" },
-          description: "Pre-computed 1536-dim query embedding (optional)",
+          description: "Pre-computed query embedding (optional; 1536-dim for OpenAI, 768-dim for Ollama). Usually omit — the server embeds the query.",
         },
         limit: {
           type: "number",
@@ -315,7 +315,7 @@ const TOOLS: Tool[] = [
         embedding: {
           type: "array",
           items: { type: "number" },
-          description: "Pre-computed 1536-dim query embedding (optional)",
+          description: "Pre-computed query embedding (optional; 1536-dim for OpenAI, 768-dim for Ollama). Usually omit — the server embeds the query.",
         },
         agent_id: {
           type: "string",

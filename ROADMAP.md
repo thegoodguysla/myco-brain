@@ -18,11 +18,13 @@ direction, not a contract. Issues and PRs that move these forward are welcome.
   (duplicate names collapse into one node), and entity-to-entity relationships.
   Build it **fully locally with Ollama (no API key)** or, for best accuracy,
   with Anthropic.
+- **Local vector search (no API key)** — semantic search via local embeddings
+  (`nomic-embed-text` on Ollama, `BRAIN_EMBED_PROVIDER=ollama`), alongside the
+  existing OpenAI path. Both keyless full-text and keyless semantic search now
+  work with zero hosted dependencies.
 
 ## Next — near-term
 
-- **Local vector search** — semantic search with no API key, via local
-  embeddings (today, vector search uses an OpenAI key; full-text is keyless).
 - **Published, reproducible benchmark** — an open memory-quality benchmark you
   can run yourself, so retrieval quality is measured, not asserted.
 - **Richer relationship extraction** — better predicate accuracy and direction,
@@ -32,9 +34,12 @@ direction, not a contract. Issues and PRs that move these forward are welcome.
 
 ## Later — the bigger bets
 
-- **Dynamic schema** — Myco proposes new entity subtypes and relationship types
-  as it observes more of your data, so the schema evolves with your domain
-  instead of being fixed up front.
+- **Dynamic schema (full)** — phase 1 ships now: the extraction worker proposes
+  new entity kinds and relationship types it observes in your data
+  (`schema_proposals`, surfaced by `brain_stats`; promotion is manual). The
+  full version auto-promotes proposals under confidence rules with an audit
+  trail, so the schema evolves with your domain instead of being fixed up
+  front.
 - **Compounding confidence (full)** — a fact's confidence rises as independent
   evidence accumulates and falls when contradicted; older facts are superseded,
   not silently overwritten. Memory that gets more reliable the more it sees.

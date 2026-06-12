@@ -198,8 +198,9 @@ Every answer traces back to the document it came from. No API key required.
 
 Point Brain at a directory or a GitHub repo and it indexes every text file —
 searchable across sessions, with each answer traceable to its source file. No
-API key required (full-text search works immediately; add an OpenAI key for
-semantic search).
+API key required (full-text search works immediately; for semantic search, run
+local embeddings with Ollama — `BRAIN_EMBED_PROVIDER=ollama` — or set an OpenAI
+key).
 
 ```bash
 # Connection comes from the same env vars the MCP server uses

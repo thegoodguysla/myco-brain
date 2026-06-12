@@ -12,14 +12,18 @@ import { z } from "zod";
 import type pg from "pg";
 import { withSession, type SessionContext } from "../db.js";
 import { createReranker, type RerankerStrategy } from "../reranker.js";
+import { activeEmbeddingTable } from "../embed.js";
 
 export const RecallMemoryInput = z.object({
   query: z.string().min(1).describe("Natural language query for recall"),
   embedding: z
     .array(z.number())
-    .length(1536)
+    .min(1)
     .optional()
-    .describe("Pre-computed query embedding (1536 dims). If omitted, full-text search only."),
+    .describe(
+      "Pre-computed query embedding (1536 dims for OpenAI, 768 for Ollama). " +
+        "If omitted, full-text search only."
+    ),
   agent_id: z
     .string()
     .optional()
@@ -134,7 +138,7 @@ async function fetchMemoryChunks(
           1 - (cos.embedding <=> $1::vector) AS similarity,
           h.agent_id
         FROM chunks c
-        JOIN chunks_openai3small cos ON cos.chunk_id = c.chunk_id
+        JOIN ${activeEmbeddingTable()} cos ON cos.chunk_id = c.chunk_id
         JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
         WHERE h.processing_state = 'done'
           ${agentFilter}

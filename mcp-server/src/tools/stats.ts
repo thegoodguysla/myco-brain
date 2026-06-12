@@ -38,6 +38,13 @@ export interface StatsResult {
     relations_pending: number;
     entities_promoted: number;
   };
+  schema: {
+    // Dynamic schema (phase 1): types the extraction worker proposed from
+    // observed data, awaiting manual review (schema_proposals, state=pending).
+    proposed_types_pending: number;
+    entity_kinds_pending: number;
+    relation_types_pending: number;
+  };
   provenance: {
     proposed_facts_total: number;
     source_backed: number;
@@ -73,10 +80,11 @@ export async function stats(
   return withSession(ctx, async (client) => {
     const documents = await count(client, "SELECT count(*)::int AS n FROM hyobjects");
     const chunks = await count(client, "SELECT count(*)::int AS n FROM chunks");
-    const embeddedChunks = await count(
-      client,
-      "SELECT count(*)::int AS n FROM chunks_openai3small"
-    );
+    // Embeddings live in a per-provider table — sum across the known ones
+    // (each count tolerates a table that doesn't exist on older schemas).
+    const embeddedChunks =
+      (await count(client, "SELECT count(*)::int AS n FROM chunks_openai3small")) +
+      (await count(client, "SELECT count(*)::int AS n FROM chunks_ollama_nomic"));
 
     const entities = await count(client, "SELECT count(*)::int AS n FROM entities");
     const people = await count(client, "SELECT count(*)::int AS n FROM people");
@@ -101,6 +109,22 @@ export async function stats(
     const entitiesPromoted = await count(
       client,
       "SELECT count(*)::int AS n FROM proposed_entities WHERE promoted_entity_id IS NOT NULL"
+    );
+
+    // Scoped to the worker-proposed types — the table also holds legacy
+    // 'hyobject_subtype' proposals from the v0.2 schema-designer flow, which
+    // would otherwise inflate the "Brain proposed N new types" headline.
+    const schemaTypesPending = await count(
+      client,
+      "SELECT count(*)::int AS n FROM schema_proposals WHERE state = 'pending' AND proposal_type IN ('entity_kind','relation_type')"
+    );
+    const schemaEntityKindsPending = await count(
+      client,
+      "SELECT count(*)::int AS n FROM schema_proposals WHERE state = 'pending' AND proposal_type = 'entity_kind'"
+    );
+    const schemaRelationTypesPending = await count(
+      client,
+      "SELECT count(*)::int AS n FROM schema_proposals WHERE state = 'pending' AND proposal_type = 'relation_type'"
     );
 
     const proposedTotal = await count(
@@ -133,12 +157,18 @@ export async function stats(
       "SELECT count(*)::int AS n FROM agent_session_notes"
     );
 
+    const schemaClause =
+      schemaTypesPending > 0
+        ? ` · Brain proposed ${schemaTypesPending} new type${schemaTypesPending === 1 ? "" : "s"} from your data (pending review)`
+        : "";
+
     const summary =
       `${documents} documents · ${entities + relations} graph facts ` +
       `(${entities} entities, ${relations} relations) · ` +
       `${sourceBackedPct}% of proposed facts source-backed · ` +
       `${entitiesPending + relationsPending} pending review · ` +
-      `${memoryWrites} idempotent writes`;
+      `${memoryWrites} idempotent writes` +
+      schemaClause;
 
     return {
       workspace_id: ctx.workspaceId,
@@ -148,6 +178,11 @@ export async function stats(
         entities_pending: entitiesPending,
         relations_pending: relationsPending,
         entities_promoted: entitiesPromoted,
+      },
+      schema: {
+        proposed_types_pending: schemaTypesPending,
+        entity_kinds_pending: schemaEntityKindsPending,
+        relation_types_pending: schemaRelationTypesPending,
       },
       provenance: {
         proposed_facts_total: proposedTotal,

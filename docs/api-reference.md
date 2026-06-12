@@ -89,7 +89,9 @@ Memory-health snapshot.
 
 - *(no required inputs)*
 
-**Returns:** `{ summary, documents, entities, relations, entities_promoted, proposals_pending, source_backed_pct, idempotent_writes, … }` — e.g. *"12 documents · 48 graph facts (40 entities, 8 relations) · 100% source-backed · 0 pending review."*
+**Returns:** `{ summary, storage, graph, review, schema, provenance, reliability, agents }` — e.g. *"12 documents · 48 graph facts (40 entities, 8 relations) · 100% source-backed · 0 pending review · Brain proposed 2 new types from your data (pending review)."*
+
+The `schema` section is dynamic schema (phase 1): `{ proposed_types_pending, entity_kinds_pending, relation_types_pending }` — entity kinds and relationship types the extraction worker observed in your data that aren't in the catalogs yet (`schema_proposals`, `state='pending'`). Promotion is manual.
 
 ---
 

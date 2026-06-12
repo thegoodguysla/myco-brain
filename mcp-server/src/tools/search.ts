@@ -15,7 +15,7 @@
 import { z } from "zod";
 import type pg from "pg";
 import { withSession, type SessionContext } from "../db.js";
-import { embedQuery } from "../embed.js";
+import { embedQuery, activeEmbeddingTable } from "../embed.js";
 import {
   tokenize,
   bm25Scores,
@@ -37,9 +37,13 @@ export const SearchInput = z.object({
   query: z.string().min(1),
   embedding: z
     .array(z.number())
-    .length(1536)
+    .min(1)
     .optional()
-    .describe("Pre-computed query embedding. If omitted, full-text only."),
+    .describe(
+      "Pre-computed query embedding (must match the server's embedding " +
+        "provider dimension: 1536 for OpenAI, 768 for Ollama). If omitted, the " +
+        "server embeds the query itself, or falls back to full-text."
+    ),
   filters: z
     .object({
       type_ids: z.array(z.number().int()).optional(),
@@ -192,6 +196,10 @@ async function hybridSearch(
 
   const whereClause = conditions.join(" AND ");
 
+  // Embeddings live in a per-provider table (chunks_openai3small / 1536 or
+  // chunks_ollama_nomic / 768). Name is from a fixed allowlist, not user input.
+  const embedTable = activeEmbeddingTable();
+
   // Step 1: fetch over-sampled candidate set from pgvector
   const candidateSql = `
     SELECT
@@ -206,7 +214,7 @@ async function hybridSearch(
       h.storage_uri
     FROM chunks c
     JOIN hyobjects h ON h.hyobject_id = c.hyobject_id
-    JOIN chunks_openai3small cos ON cos.chunk_id = c.chunk_id
+    JOIN ${embedTable} cos ON cos.chunk_id = c.chunk_id
     WHERE ${whereClause}
     ORDER BY cos.embedding <=> $${vecParam}::vector
     LIMIT $${limitParam}

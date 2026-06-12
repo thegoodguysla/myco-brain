@@ -95,12 +95,64 @@ export function fakeExtractEntities(text: string): ExtractionOutput {
     new Set((text.match(/\b[A-Z][a-zA-Z0-9_-]{2,}\b/g) ?? []).slice(0, 8)),
   );
   return {
-    entities: names.map((name) => ({
-      name,
-      kind: "concept",
-      aliases: [],
-      confidence: 0.55,
-    })),
+    // Tokens prefixed "Orgz" simulate a high-confidence catalog-kind entity,
+    // so gated checks can exercise the auto-promotion path (and strict
+    // curation mode's blocking of it) without an LLM. Everything else stays a
+    // low-confidence novel "concept" (exercises the dynamic-schema path).
+    entities: names.map((name) =>
+      name.startsWith("Orgz")
+        ? { name, kind: "organization", aliases: [], confidence: 0.9 }
+        : { name, kind: "concept", aliases: [], confidence: 0.55 },
+    ),
     relations: [],
+  };
+}
+
+/**
+ * Names referenced as relation endpoints that are absent from the entities
+ * list (case-insensitive; aliases count). Small local models frequently emit
+ * a correct relation while forgetting to list one of its endpoints as an
+ * entity — without recovery, the worker's anti-hallucination guard then drops
+ * the edge entirely. Capped at 8 names; junk (single chars) skipped.
+ */
+export function missingRelationEndpoints(output: ExtractionOutput): string[] {
+  const known = new Set<string>();
+  for (const e of output.entities) {
+    known.add(e.name.toLowerCase());
+    for (const a of e.aliases ?? []) known.add(a.toLowerCase());
+  }
+  const missing = new Map<string, string>();
+  for (const r of output.relations ?? []) {
+    for (const name of [r.subject, r.object]) {
+      const key = name.trim().toLowerCase();
+      if (key.length >= 2 && !known.has(key) && !missing.has(key)) {
+        missing.set(key, name.trim());
+      }
+    }
+  }
+  return [...missing.values()].slice(0, 8);
+}
+
+/**
+ * Merge entities recovered by the endpoint-classification pass into the
+ * primary output. Only names that were actually requested are accepted (the
+ * model must not introduce new entities here), and existing names win.
+ */
+export function mergeRecoveredEntities(
+  output: ExtractionOutput,
+  recovered: ExtractionOutput["entities"],
+  requested: string[],
+): ExtractionOutput {
+  const want = new Set(requested.map((n) => n.toLowerCase()));
+  const have = new Set(output.entities.map((e) => e.name.toLowerCase()));
+  const additions = recovered.filter((e) => {
+    const key = e.name.toLowerCase();
+    if (!want.has(key) || have.has(key)) return false;
+    have.add(key);
+    return true;
+  });
+  return {
+    entities: [...output.entities, ...additions],
+    relations: output.relations,
   };
 }

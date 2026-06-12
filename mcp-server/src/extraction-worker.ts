@@ -6,10 +6,15 @@ import { closePool, withSession } from "./db.js";
 import { resolveAuth } from "./auth.js";
 import {
   clampConfidence,
-  fakeExtractEntities,
-  safeParse,
   type ExtractionOutput,
 } from "./extraction-worker.lib.js";
+import { extract } from "./extraction.js";
+import {
+  collectSchemaProposals,
+  normalizeTypeName,
+  persistSchemaProposals,
+  schemaProposalMinConfidence,
+} from "./schema-proposals.js";
 
 type ExtractionStatus = "pending" | "processing" | "succeeded" | "failed";
 
@@ -32,6 +37,15 @@ const OLLAMA_BASE_URL = (process.env.BRAIN_OLLAMA_BASE_URL ?? "").replace(/\/$/,
 const OLLAMA_MODEL = process.env.BRAIN_OLLAMA_MODEL ?? "llama3.2:3b";
 
 const anthropicApiKey = process.env.BRAIN_ANTHROPIC_API_KEY;
+
+// Strict curation mode: nothing the LLM proposes is auto-promoted into the
+// canonical graph — every entity and relation waits in proposed_* (pending)
+// for human review. This is the upstream-Hyperscope contract ("the LLM writes
+// descriptions, the human decides") as a switch. Note: relations can only be
+// queued between entities that already exist in the canonical graph, so on a
+// fresh strict-mode workspace, approve entities first and relations will
+// queue on subsequent extractions.
+const REQUIRE_HUMAN_REVIEW = process.env.BRAIN_REQUIRE_HUMAN_REVIEW === "1";
 
 const auth = resolveAuth({
   apiKey: process.env.BRAIN_API_KEY,
@@ -61,15 +75,6 @@ const EXTRACTOR_LABEL =
     : EXTRACTION_PROVIDER === "anthropic"
       ? `llm:${MODEL}`
       : "program:fake-extractor";
-
-const EXTRACTION_SYSTEM =
-  'Extract named entities AND the relationships between them from text. Return only JSON with shape ' +
-  '{"entities":[{"name":string,"kind":string,"aliases":string[],"confidence":number}],' +
-  '"relations":[{"subject":string,"predicate":string,"object":string,"confidence":number}]}. ' +
-  '"kind" is one of: organization, person, project, location. ' +
-  'In relations, "subject" and "object" MUST be names that appear in entities, and "predicate" is a short verb phrase such as "owns", "works for", "manages", "launches", "located in". ' +
-  'Only include a relation if the text clearly states it. "confidence" is 0-1; use >=0.7 when sure. No extra keys, no prose.';
-
 
 async function claimBatch(): Promise<ClaimedChunk[]> {
   return withSession(auth.ctx, async (client) => {
@@ -115,52 +120,35 @@ async function mapEntityKindIds(): Promise<Map<string, number>> {
   });
 }
 
+// Known relation-type names — predicates outside this catalog get recorded as
+// schema_proposals. Loaded once per run, like the kind map. Names are run
+// through normalizeTypeName so catalog conventions like "ASSIGNED_TO" compare
+// equal to extracted phrases like "assigned to".
+async function mapKnownPredicates(): Promise<Set<string>> {
+  return withSession(auth.ctx, async (client) => {
+    const res = await client.query<{ name: string }>(
+      `SELECT name FROM relation_types`,
+    );
+    const known = new Set<string>();
+    for (const row of res.rows) {
+      const n = normalizeTypeName(row.name);
+      if (n) known.add(n);
+    }
+    return known;
+  });
+}
+
 async function extractEntities(text: string): Promise<ExtractionOutput> {
-  const input = text.slice(0, MAX_TEXT_CHARS);
-  if (EXTRACTION_PROVIDER === "ollama") return extractWithOllama(input);
-  if (EXTRACTION_PROVIDER === "anthropic" && anthropic) {
-    return extractWithAnthropic(anthropic, input);
-  }
-  return fakeExtractEntities(text);
-}
-
-async function extractWithAnthropic(
-  client: Anthropic,
-  input: string
-): Promise<ExtractionOutput> {
-  const response = await client.messages.create({
-    model: MODEL,
-    max_tokens: 800,
-    temperature: 0,
-    system: EXTRACTION_SYSTEM,
-    messages: [{ role: "user", content: `Text:\n\n${input}` }],
+  // Provider calls + the shared prompt live in extraction.ts so they can be
+  // imported (e.g. by the gold-fixture direction check) without starting this
+  // worker's polling loop.
+  return extract(text.slice(0, MAX_TEXT_CHARS), {
+    provider: EXTRACTION_PROVIDER,
+    anthropic,
+    anthropicModel: MODEL,
+    ollamaBaseUrl: OLLAMA_BASE_URL,
+    ollamaModel: OLLAMA_MODEL,
   });
-  const textBlock = response.content.find((p) => p.type === "text");
-  if (!textBlock || textBlock.type !== "text") return { entities: [], relations: [] };
-  return safeParse(textBlock.text);
-}
-
-async function extractWithOllama(input: string): Promise<ExtractionOutput> {
-  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      stream: false,
-      format: "json", // forces valid JSON output
-      options: { temperature: 0 },
-      messages: [
-        { role: "system", content: EXTRACTION_SYSTEM },
-        { role: "user", content: `Text:\n\n${input}` },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text().catch(() => res.statusText);
-    throw new Error(`Ollama extraction error ${res.status}: ${err}`);
-  }
-  const json = (await res.json()) as { message?: { content?: string } };
-  return safeParse(json.message?.content ?? "");
 }
 
 async function markFailed(chunkId: string, error: string): Promise<void> {
@@ -301,6 +289,7 @@ async function persistSuccess(
   chunk: ClaimedChunk,
   output: ExtractionOutput,
   kindMap: Map<string, number>,
+  knownPredicates: Set<string>,
 ): Promise<void> {
   const threshold = await getAutoPromoteThreshold();
   await withSession(auth.ctx, async (client) => {
@@ -310,10 +299,14 @@ async function persistSuccess(
     const nameToEntityId = new Map<string, string>();
 
     for (const entity of output.entities) {
-      const kindId =
-        kindMap.get(entity.kind?.toLowerCase?.() ?? "") ??
-        kindMap.get("organization") ??
-        1;
+      const catalogKindId = kindMap.get(entity.kind?.toLowerCase?.() ?? "");
+      // Novel kinds (not in the entity_kinds catalog) are stored in the review
+      // queue under the organization fallback id, but are NEVER auto-promoted:
+      // the kind itself is only a pending schema proposal, and promoting the
+      // instance under a wrong kind would both mislabel the canonical graph
+      // and let the kind-scoped entity-resolution merge, say, a product into
+      // an organization node. They wait for manual review.
+      const kindId = catalogKindId ?? kindMap.get("organization") ?? 1;
       const confidence = clampConfidence(entity.confidence);
       const aliases = entity.aliases ?? [];
 
@@ -328,7 +321,9 @@ async function persistSuccess(
 
       // Promote confident entities into the canonical graph so they're queryable
       // via brain_neighbors / get_related, and link them to their source doc.
-      if (confidence >= threshold) {
+      // Only catalog kinds are eligible (see the novel-kind note above), and
+      // strict curation mode disables promotion entirely.
+      if (confidence >= threshold && catalogKindId !== undefined && !REQUIRE_HUMAN_REVIEW) {
         const entityId = await resolveOrCreateEntity(
           client,
           chunk.workspaceId,
@@ -372,9 +367,21 @@ async function persistSuccess(
         `INSERT INTO proposed_relations
            (workspace_id, subject_kind, subject_id, object_kind, object_id, predicate,
             source_hyobject_id, extracted_by, confidence, state)
-         VALUES ($1, 'entity', $2, 'entity', $3, $4, $5, $6, $7, 'auto_promoted')`,
-        [chunk.workspaceId, subjectId, objectId, rel.predicate, chunk.hyobjectId, EXTRACTOR_LABEL, relConfidence],
+         VALUES ($1, 'entity', $2, 'entity', $3, $4, $5, $6, $7, $8)`,
+        [
+          chunk.workspaceId,
+          subjectId,
+          objectId,
+          rel.predicate,
+          chunk.hyobjectId,
+          EXTRACTOR_LABEL,
+          relConfidence,
+          REQUIRE_HUMAN_REVIEW ? "pending" : "auto_promoted",
+        ],
       );
+      // Strict curation mode: the relation waits in the review queue; no
+      // canonical graph edge is written.
+      if (REQUIRE_HUMAN_REVIEW) continue;
 
       // entity_relations is the promoted graph edge. De-dupe identical edges
       // (same pair + predicate) that may recur across chunks.
@@ -391,23 +398,68 @@ async function persistSuccess(
       if (ins.rowCount && ins.rowCount > 0) relationsAdded++;
     }
 
+    // Dynamic schema (phase 1): record kinds/predicates we observed that the
+    // catalogs don't know about. Pending-only — promotion is manual; the
+    // unique (workspace, type, name) constraint dedupes repeat sightings.
+    const schemaCandidates = collectSchemaProposals(
+      output,
+      new Set(kindMap.keys()),
+      knownPredicates,
+      schemaProposalMinConfidence(),
+    );
+    let schemaProposed = 0;
+    if (schemaCandidates.length) {
+      // Best-effort under a SAVEPOINT: proposals are telemetry, and they must
+      // never take down the chunk's extraction output. Concretely: on a DB
+      // that hasn't applied migration 20260611000047 yet, inserting
+      // proposal_type='entity_kind' violates the old CHECK (SQLSTATE 23514)
+      // and would otherwise roll back this whole transaction and burn the
+      // chunk's retry attempts. (A plain try/catch is not enough — the
+      // transaction is aborted until rolled back to a savepoint.)
+      await client.query("SAVEPOINT schema_proposals");
+      try {
+        schemaProposed = await persistSchemaProposals(
+          client,
+          chunk.workspaceId,
+          chunk.hyobjectId,
+          EXTRACTOR_LABEL,
+          schemaCandidates,
+        );
+        await client.query("RELEASE SAVEPOINT schema_proposals");
+      } catch (err) {
+        await client.query("ROLLBACK TO SAVEPOINT schema_proposals");
+        console.error(
+          JSON.stringify({
+            level: "warn",
+            message: `schema proposal write skipped: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          }),
+        );
+      }
+    }
+
     await client.query(
       `UPDATE chunk_extraction_status
        SET status = 'succeeded',
            extracted_at = now(),
            last_error = NULL,
            metadata = COALESCE(metadata, '{}'::jsonb)
-             || jsonb_build_object('entity_count', $2::int, 'promoted_count', $3::int, 'relation_count', $4::int)
+             || jsonb_build_object('entity_count', $2::int, 'promoted_count', $3::int, 'relation_count', $4::int, 'schema_proposed_count', $5::int)
        WHERE chunk_id = $1`,
-      [chunk.chunkId, output.entities.length, promoted, relationsAdded],
+      [chunk.chunkId, output.entities.length, promoted, relationsAdded, schemaProposed],
     );
   });
 }
 
-async function processOne(chunk: ClaimedChunk, kindMap: Map<string, number>): Promise<void> {
+async function processOne(
+  chunk: ClaimedChunk,
+  kindMap: Map<string, number>,
+  knownPredicates: Set<string>,
+): Promise<void> {
   try {
     const output = await extractEntities(chunk.text);
-    await persistSuccess(chunk, output, kindMap);
+    await persistSuccess(chunk, output, kindMap, knownPredicates);
     console.log(
       JSON.stringify({
         chunk_id: chunk.chunkId,
@@ -428,12 +480,15 @@ async function processOne(chunk: ClaimedChunk, kindMap: Map<string, number>): Pr
   }
 }
 
-async function runOnce(kindMap: Map<string, number>): Promise<number> {
+async function runOnce(
+  kindMap: Map<string, number>,
+  knownPredicates: Set<string>,
+): Promise<number> {
   const batch = await claimBatch();
   if (batch.length === 0) return 0;
 
   for (const chunk of batch) {
-    await processOne(chunk, kindMap);
+    await processOne(chunk, kindMap, knownPredicates);
   }
 
   return batch.length;
@@ -441,17 +496,18 @@ async function runOnce(kindMap: Map<string, number>): Promise<number> {
 
 async function main(): Promise<void> {
   const kindMap = await mapEntityKindIds();
+  const knownPredicates = await mapKnownPredicates();
   const once = process.argv.includes("--once");
 
   if (once) {
-    await runOnce(kindMap);
+    await runOnce(kindMap, knownPredicates);
     await closePool();
     return;
   }
 
   while (true) {
     try {
-      const processed = await runOnce(kindMap);
+      const processed = await runOnce(kindMap, knownPredicates);
       if (processed === 0) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
       }
