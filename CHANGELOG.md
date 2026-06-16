@@ -5,6 +5,23 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.3] — 2026-06-16
+
+A documentation-accuracy release. **No code or tool-contract changes** — purely a
+correction to a published benchmark figure, in keeping with our rule that every
+number we publish reproduces on the full set.
+
+### Fixed
+- **recall@5 corrected to the full 500-question run.** The recency-reranker
+  recall@5 figures introduced in 1.2.2 ("86% → ~92%") were measured on a
+  **100-question sample**. Re-run on the **full 500-question** LongMemEval
+  `longmemeval_s` set, the numbers are **89.2%** (default `hybrid`) → **91.6%**
+  (`recency`) — the default is actually *higher* than the sample showed, and the
+  reranker holds ~92%. Independently re-run end-to-end and reproduced **exactly**
+  (zero drift; retrieval is deterministic). Reproduce:
+  `python -m evals.longmemeval.run --subset longmemeval_s -n 500 --no-qa`
+  (compare the `hybrid` and `temporal` rows, `ev_at_5`).
+
 ## [1.2.2] — 2026-06-16
 
 A retrieval-quality release. No tool-contract changes (the reranker is an

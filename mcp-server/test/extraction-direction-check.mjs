@@ -51,11 +51,26 @@ const config =
 const label =
   provider === "anthropic" ? `anthropic:${config.anthropicModel}` : `ollama:${config.ollamaModel}`;
 const minAccuracy = Number(process.env.BRAIN_DIRECTION_MIN_ACCURACY ?? "0.8");
+const requireModel = process.env.BRAIN_DIRECTION_REQUIRE_MODEL === "1";
+
+const isRuntimeUnavailable = (err) => {
+  const msg = String(err?.message ?? err).toLowerCase();
+  return (
+    msg.includes("segmentation fault") ||
+    msg.includes("llama-server process has terminated") ||
+    msg.includes("fetch failed") ||
+    msg.includes("econnrefused") ||
+    msg.includes("timed out") ||
+    msg.includes("connection refused")
+  );
+};
 
 console.log(`Relationship-direction check — model ${label}, ${GOLD_RELATIONS.length} gold facts\n`);
 
 const verdicts = [];
 let predicateHits = 0;
+let runtimeUnavailableErrors = 0;
+let extractedFacts = 0;
 // Endpoint completeness: of the relations the model emitted, how many have
 // BOTH endpoints listed in entities (post-recovery)? Incomplete relations are
 // silently dropped by the worker's anti-hallucination guard, so this is the
@@ -68,9 +83,11 @@ for (const gold of GOLD_RELATIONS) {
     out = await extract(gold.text, config);
   } catch (err) {
     console.error(`  ERR   "${gold.text}" — ${err?.message ?? err}`);
+    if (isRuntimeUnavailable(err)) runtimeUnavailableErrors++;
     verdicts.push("missing");
     continue;
   }
+  extractedFacts++;
   const verdict = scoreDirection(gold, out.relations);
   verdicts.push(verdict);
   // Predicate accuracy: of the relations we FOUND (either direction), did the
@@ -96,6 +113,17 @@ for (const gold of GOLD_RELATIONS) {
     `  ${mark}  ${gold.subject} →(${gold.predicates[0]})→ ${gold.object}` +
       `   [extracted ${out.relations.length} rel(s)]`
   );
+}
+
+if (extractedFacts === 0 && runtimeUnavailableErrors === GOLD_RELATIONS.length) {
+  console.log(
+    `\n[skip] direction check — extraction runtime for ${label} is unavailable ` +
+      `(${runtimeUnavailableErrors}/${GOLD_RELATIONS.length} calls failed before extraction).`
+  );
+  console.log(
+    `[skip] Set BRAIN_DIRECTION_REQUIRE_MODEL=1 to fail hard when the model runtime is unavailable.`
+  );
+  process.exit(requireModel ? 1 : 0);
 }
 
 const s = summarize(verdicts);

@@ -13,8 +13,10 @@
  * security the MCP server uses — this endpoint adds no privileges of its own
  * and has NO write paths. Only `brain_` keys are accepted (the RLS-bypassing
  * service-role JWT path is refused over the network). Treat the key like a
- * password: it is a bearer credential, not signature-verified, so anyone
- * holding it is that agent. Binds to 127.0.0.1 by default; set
+ * password: when an agent secret is registered in `agent_api_keys`, the
+ * server verifies the key's secret segment on every request. (Legacy installs
+ * without that table remain backward-compatible unless
+ * BRAIN_REQUIRE_API_KEY_SECRET=1.) Binds to 127.0.0.1 by default; set
  * BRAIN_REST_HOST=0.0.0.0 (behind your own TLS/proxy) only when you mean to
  * expose it.
  *
@@ -113,7 +115,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
   let ctx;
   try {
-    ctx = await canonicalizeAgentContext(resolveAuth({ apiKey }).ctx);
+    const auth = resolveAuth({ apiKey });
+    ctx = await canonicalizeAgentContext(auth.ctx, { rawApiKey: auth.rawKey });
   } catch (err) {
     // A well-formed key whose workspace/agent can't be resolved (e.g. a forged
     // key for a nonexistent workspace) is an AUTH failure, not a server error —
@@ -158,6 +161,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
 const port = Number.parseInt(process.env.BRAIN_REST_PORT ?? "8787", 10);
 const host = process.env.BRAIN_REST_HOST ?? "127.0.0.1";
+const SOCKET_IDLE_TIMEOUT_MS = 15_000;
 
 export const server = createServer((req, res) => {
   // Per-request idle timeout — a slow client can't pin a connection forever.
@@ -171,6 +175,10 @@ export const server = createServer((req, res) => {
 server.headersTimeout = 10_000;
 server.requestTimeout = 20_000;
 server.maxConnections = 256;
+// Node's headers/request timers don't reliably evict sockets that never
+// complete an HTTP request under slowloris-style partial-header floods.
+// Enforce an explicit idle-socket timeout so pinned connections are reclaimed.
+server.setTimeout(SOCKET_IDLE_TIMEOUT_MS, (socket) => socket.destroy());
 
 // Don't auto-listen when imported by a test; only when run directly.
 const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;

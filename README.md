@@ -146,9 +146,14 @@ curl -s localhost:8787/search \
 ```
 
 The key scopes every query to its workspace (same row-level security as MCP);
-there are **no write routes**. It binds to loopback by default — set
-`BRAIN_REST_HOST=0.0.0.0` behind your own TLS/proxy only when you mean to
-expose it, and treat the key like a password. *Proof: `npm run test:rest`.*
+there are **no write routes**. By default, installs migrated to
+`20260616000051_agent_api_key_verification.sql` verify each key's `<secret>`
+segment against `agent_api_keys` when a secret is registered for that
+workspace+agent (register/rotate via `brain_set_agent_api_key_secret(...)`).
+Set `BRAIN_REQUIRE_API_KEY_SECRET=1` to require registered secrets for every
+agent key. It binds to loopback by default — set `BRAIN_REST_HOST=0.0.0.0`
+behind your own TLS/proxy only when you mean to expose it, and treat the key
+like a password. *Proof: `npm run test:rest`.*
 
 ## Five Verified Demos
 

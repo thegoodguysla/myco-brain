@@ -32,9 +32,10 @@ async function withSetup<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-    await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-    await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_ID]);
+    await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+    await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+    await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_ID]);
+    await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
     const result = await fn(client);
     await client.query("COMMIT");
     return result;
@@ -233,9 +234,10 @@ describe("Myco E2E Smoke Test: ingest → search → neighbors → why", () => {
   it("2. ingest: creates an AgentAction hyobject as side-effect", async () => {
     const client = await getPool().connect();
     try {
-      await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-      await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-      await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_ID]);
+      await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+      await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+      await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_ID]);
+      await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
       const res = await client.query(
         `SELECT hyobject_id FROM hyobjects WHERE workspace_id = $1 AND type_id = 80 ORDER BY created_at DESC LIMIT 1`,
         [TEST_WORKSPACE_ID]
@@ -250,9 +252,10 @@ describe("Myco E2E Smoke Test: ingest → search → neighbors → why", () => {
     // Text-mode ingest writes chunks and content_tsv inline — no worker step needed.
     const client = await getPool().connect();
     try {
-      await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-      await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-      await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_ID]);
+      await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+      await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+      await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_ID]);
+      await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
 
       // Verify hyobject is already done
       const hyRes = await client.query(

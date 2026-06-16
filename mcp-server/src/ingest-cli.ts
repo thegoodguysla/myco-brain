@@ -273,7 +273,9 @@ async function main(): Promise<void> {
     workspaceId: process.env.BRAIN_WORKSPACE_ID,
     agentId: process.env.BRAIN_AGENT_ID,
   });
-  const ctx = await canonicalizeAgentContext(auth.ctx);
+  const ctx = await canonicalizeAgentContext(auth.ctx, {
+    rawApiKey: auth.rawKey,
+  });
 
   const started = Date.now();
   let result: { ingested: number; skipped: number };

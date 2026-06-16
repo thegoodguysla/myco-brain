@@ -19,6 +19,12 @@ if (!process.env.DATABASE_URL) {
   console.log("[skip] onboard check — DATABASE_URL is not set.");
   process.exit(0);
 }
+// This check validates reset/tour safety logic, not embedding providers.
+// Force keyless full-text mode so external Ollama/OpenAI state can't make the
+// test flaky via background embedding retries.
+delete process.env.BRAIN_EMBED_PROVIDER;
+delete process.env.BRAIN_OLLAMA_BASE_URL;
+delete process.env.BRAIN_OPENAI_API_KEY;
 
 const [{ canonicalizeAgentContext }, { resolveAuth }, { ingest, IngestInput },
        { default: pg }, cpMod, pathMod] = await Promise.all([

@@ -18,11 +18,33 @@ export interface AuthResult {
   rawKey: string;
 }
 
+export interface BrainApiKeyParts {
+  workspaceId: string;
+  agentId: string;
+  secret: string;
+}
+
 export class AuthError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AuthError";
   }
+}
+
+export function parseBrainApiKey(apiKey: string): BrainApiKeyParts {
+  const match = /^brain_([^_]+)_([^_]+)_(.+)$/.exec(apiKey);
+  if (!match) {
+    throw new AuthError(
+      "Malformed BRAIN_API_KEY. Expected: brain_<workspaceId>_<agentId>_<secret>"
+    );
+  }
+  const [, workspaceId, agentId, secret] = match;
+  if (!secret.trim()) {
+    throw new AuthError(
+      "Malformed BRAIN_API_KEY. Secret segment must be non-empty."
+    );
+  }
+  return { workspaceId, agentId, secret };
 }
 
 /**
@@ -74,13 +96,7 @@ export function resolveAuth(params: {
   // injection driving one) impersonate another agent and read its private
   // memories. Identity overrides are a service-role privilege.
   if (apiKey.startsWith("brain_")) {
-    const parts = apiKey.split("_");
-    if (parts.length < 4) {
-      throw new AuthError(
-        "Malformed BRAIN_API_KEY. Expected: brain_<workspaceId>_<agentId>_<secret>"
-      );
-    }
-    const [, workspaceId, agentId] = parts;
+    const { workspaceId, agentId } = parseBrainApiKey(apiKey);
     return {
       rawKey: apiKey,
       ctx: {

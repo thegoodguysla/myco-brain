@@ -63,6 +63,13 @@ if (r.status === 401) ok("POST /search with no key → 401"); else fail(`no-key 
 r = await call("POST", "/search", { key: "not-a-brain-key", body: JSON.stringify({ query: "x" }) });
 if (r.status === 401) ok("POST /search with malformed key → 401"); else fail(`bad-key expected 401, got ${r.status}`);
 
+r = await call("POST", "/search", {
+  key: `brain_${WS}_00000000-0000-0000-0000-0000000000a1_wrong-secret`,
+  body: JSON.stringify({ query: "x" }),
+});
+if (r.status === 401) ok("POST /search with forged secret → 401");
+else fail(`forged-secret expected 401, got ${r.status}`);
+
 // A JWT-shaped key must NOT reach the RLS-bypassing service-role branch.
 r = await call("POST", "/search", { key: "eyJhbGciOiJIUzI1NiJ9.payload.sig", body: JSON.stringify({ query: "x" }) });
 if (r.status === 401) ok("POST /search with JWT-shaped key → 401 (service-role branch refused over network)");

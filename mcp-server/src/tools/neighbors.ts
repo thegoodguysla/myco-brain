@@ -166,7 +166,7 @@ export async function neighbors(
     } else if (input.node_kind === "entity") {
       // entity ↔ entity
       const eeRes = await client.query(
-        `SELECT id, entity1_id, entity2_id, predicate, relation_type_id, confidence, created_at
+        `SELECT id, entity1_id, entity2_id, predicate, confidence, created_at
          FROM entity_relations
          WHERE (entity1_id = $1 OR entity2_id = $1)
            AND (valid_to IS NULL OR valid_to > now())
@@ -180,7 +180,7 @@ export async function neighbors(
           from_kind: "entity",
           to_id: row.entity2_id,
           to_kind: "entity",
-          relation_type_id: row.relation_type_id,
+          relation_type_id: null,
           predicate: row.predicate,
           confidence: row.confidence,
           created_at: row.created_at,

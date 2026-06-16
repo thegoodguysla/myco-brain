@@ -19,8 +19,8 @@ import { saveMemory, type SaveMemoryResult } from "./tools/save-memory.js";
 import { recallMemory } from "./tools/recall-memory.js";
 
 const TEST_WORKSPACE_ID = "00000000-0000-0000-0000-00000000e2e2";
-const TEST_AGENT_A_ID = "e2e-memory-agent-a";
-const TEST_AGENT_B_ID = "e2e-memory-agent-b";
+const TEST_AGENT_A_ID = "00000000-0000-0000-0000-00000000ea11";
+const TEST_AGENT_B_ID = "00000000-0000-0000-0000-00000000eb22";
 
 const ctxA: SessionContext = {
   workspaceId: TEST_WORKSPACE_ID,
@@ -44,9 +44,10 @@ async function withSetup<T>(fn: (client: pg.PoolClient) => Promise<T>): Promise<
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-    await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-    await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_A_ID]);
+    await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+    await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+    await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_A_ID]);
+    await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
     const result = await fn(client);
     await client.query("COMMIT");
     return result;
@@ -145,6 +146,14 @@ describe("Memory E2E Smoke Test: save_memory → recall_memory (cross-agent)", (
         `DELETE FROM entities WHERE workspace_id = $1`,
         [TEST_WORKSPACE_ID]
       );
+      await runSetup(client,
+        `DELETE FROM relation_evidence WHERE workspace_id = $1`,
+        [TEST_WORKSPACE_ID]
+      );
+      await runSetup(client,
+        `DELETE FROM memory_write_events WHERE workspace_id = $1`,
+        [TEST_WORKSPACE_ID]
+      );
     });
   });
 
@@ -164,6 +173,14 @@ describe("Memory E2E Smoke Test: save_memory → recall_memory (cross-agent)", (
       );
       await runSetup(client,
         `DELETE FROM hyobjects WHERE workspace_id = $1`,
+        [TEST_WORKSPACE_ID]
+      );
+      await runSetup(client,
+        `DELETE FROM relation_evidence WHERE workspace_id = $1`,
+        [TEST_WORKSPACE_ID]
+      );
+      await runSetup(client,
+        `DELETE FROM memory_write_events WHERE workspace_id = $1`,
         [TEST_WORKSPACE_ID]
       );
       await runSetup(client,
@@ -191,7 +208,7 @@ describe("Memory E2E Smoke Test: save_memory → recall_memory (cross-agent)", (
     expect(saveResultA.hyobject_id).toBeTruthy();
     expect(saveResultA.note_id).toBeTruthy();
     expect(saveResultA.session_id).toBeTruthy();
-    expect(saveResultA.message).toContain("Memory saved");
+    expect(saveResultA.message).toContain("Memory created");
     expect(saveResultA.message).toContain(saveResultA.hyobject_id);
   });
 
@@ -216,9 +233,10 @@ describe("Memory E2E Smoke Test: save_memory → recall_memory (cross-agent)", (
   it("3. hyobjects are persisted with correct metadata", async () => {
     const client = await getPool().connect();
     try {
-      await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-      await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-      await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_A_ID]);
+      await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+      await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+      await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_A_ID]);
+      await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
 
       const resA = await client.query(
         `SELECT type_id, subtype_id, agent_id, processing_state, content_tsv IS NOT NULL AS has_tsv
@@ -245,9 +263,10 @@ describe("Memory E2E Smoke Test: save_memory → recall_memory (cross-agent)", (
   it("4. chunks are persisted with full text", async () => {
     const client = await getPool().connect();
     try {
-      await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-      await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-      await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_A_ID]);
+      await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+      await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+      await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_A_ID]);
+      await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
 
       const res = await client.query(
         `SELECT chunk_index, text, metadata FROM chunks WHERE hyobject_id = $1`,
@@ -268,9 +287,10 @@ describe("Memory E2E Smoke Test: save_memory → recall_memory (cross-agent)", (
   it("5. session notes are persisted for both agents", async () => {
     const client = await getPool().connect();
     try {
-      await client.query(`SET LOCAL app.workspace_id = $1`, [TEST_WORKSPACE_ID]);
-      await client.query(`SET LOCAL app.principal_role = $1`, ["service"]);
-      await client.query(`SET LOCAL app.actor_id = $1`, [TEST_AGENT_A_ID]);
+      await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [TEST_WORKSPACE_ID]);
+      await client.query(`SELECT set_config('app.principal_role', $1, true)`, ["service"]);
+      await client.query(`SELECT set_config('app.actor_id', $1, true)`, [TEST_AGENT_A_ID]);
+      await client.query(`SELECT set_config('app.actor_kind', $1, true)`, ["program"]);
 
       const noteA = await client.query(
         `SELECT kind, content FROM agent_session_notes WHERE note_id = $1`,

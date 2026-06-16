@@ -376,7 +376,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return errorResponse(`Auth error: ${(err as Error).message}`);
   }
 
-  const ctx = await canonicalizeAgentContext(auth.ctx);
+  const ctx = await canonicalizeAgentContext(auth.ctx, {
+    rawApiKey: auth.rawKey,
+  });
 
   try {
     switch (name) {

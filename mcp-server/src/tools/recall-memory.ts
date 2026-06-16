@@ -122,14 +122,16 @@ async function fetchMemoryChunks(
   client: pg.PoolClient,
   input: RecallMemoryInput
 ): Promise<MemoryChunk[]> {
-  const agentFilter =
-    input.agent_id
-      ? `AND h.agent_id = $2`
-      : `AND h.agent_id IS NOT NULL`;
-
   const embeddingParam = input.embedding ? `[${input.embedding.join(",")}]` : null;
 
   if (embeddingParam && input.embedding) {
+    const hasAgentScope = Boolean(input.agent_id);
+    const agentFilter = hasAgentScope
+      ? `AND h.agent_id = $2`
+      : `AND h.agent_id IS NOT NULL`;
+    const limitParam = hasAgentScope ? "$3" : "$2";
+    const queryParam = hasAgentScope ? "$4" : "$3";
+
     const query = `
       WITH vector_hits AS (
         SELECT
@@ -144,22 +146,22 @@ async function fetchMemoryChunks(
         WHERE h.processing_state = 'done'
           ${agentFilter}
         ORDER BY cos.embedding <=> $1::vector
-        LIMIT $3
+        LIMIT ${limitParam}
       ),
       text_hits AS (
         SELECT
           h.hyobject_id,
           h.name,
           c.text,
-          ts_rank(h.content_tsv, replace(plainto_tsquery($4)::text, '&', '|')::tsquery) AS rank,
+          ts_rank(h.content_tsv, replace(plainto_tsquery(${queryParam})::text, '&', '|')::tsquery) AS rank,
           h.agent_id
         FROM hyobjects h
         JOIN chunks c ON c.hyobject_id = h.hyobject_id AND ${hyobjectVisibleSql("h")}
-        WHERE h.content_tsv @@ replace(plainto_tsquery($4)::text, '&', '|')::tsquery
+        WHERE h.content_tsv @@ replace(plainto_tsquery(${queryParam})::text, '&', '|')::tsquery
           AND h.processing_state = 'done'
           ${agentFilter}
         ORDER BY rank DESC
-        LIMIT $3
+        LIMIT ${limitParam}
       )
       SELECT
         COALESCE(v.hyobject_id, t.hyobject_id) AS hyobject_id,
@@ -171,13 +173,21 @@ async function fetchMemoryChunks(
       FROM vector_hits v
       FULL OUTER JOIN text_hits t ON t.hyobject_id = v.hyobject_id
       ORDER BY score DESC
-      LIMIT $3
+      LIMIT ${limitParam}
     `;
 
-    const params: unknown[] = [embeddingParam, input.agent_id ?? "", input.limit, input.query];
+    const params: unknown[] = hasAgentScope
+      ? [embeddingParam, input.agent_id, input.limit, input.query]
+      : [embeddingParam, input.limit, input.query];
     const res = await client.query(query, params);
     return res.rows as MemoryChunk[];
   }
+
+  const hasAgentScope = Boolean(input.agent_id);
+  const agentFilter = hasAgentScope
+    ? `AND h.agent_id = $2`
+    : `AND h.agent_id IS NOT NULL`;
+  const limitParam = hasAgentScope ? "$3" : "$2";
 
   // Full-text only.
   // OR semantics (see search.ts / context-pack.ts): plainto_tsquery ANDs every
@@ -196,10 +206,12 @@ async function fetchMemoryChunks(
       AND h.processing_state = 'done'
       ${agentFilter}
     ORDER BY score DESC
-    LIMIT $2
+    LIMIT ${limitParam}
   `;
 
-  const params: unknown[] = [input.query, input.limit];
+  const params: unknown[] = hasAgentScope
+    ? [input.query, input.agent_id, input.limit]
+    : [input.query, input.limit];
   const res = await client.query(query, params);
   return res.rows as MemoryChunk[];
 }

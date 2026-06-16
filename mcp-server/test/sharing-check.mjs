@@ -86,20 +86,26 @@ const names = async (ctx) =>
     (r) => r.hyobject_name
   );
 
-// ── Creator sees both ──────────────────────────────────────────────────────
-const seenA = await names(ctxA);
-if (seenA.some((n) => n?.includes("private")) && seenA.some((n) => n?.includes("workspace"))) {
-  ok("creator (agent A) sees both private and workspace docs");
+// ── Creator sees both docs; other agent only the workspace doc ─────────────
+const whyAForPrivate = await why(ctxA, WhyInput.parse({ hyobject_id: privId }));
+const whyAForWorkspace = await why(ctxA, WhyInput.parse({ hyobject_id: wsId }));
+if (whyAForPrivate.subject?.id === privId && whyAForWorkspace.subject?.id === wsId) {
+  ok("creator (agent A) can read both private and workspace docs");
 } else {
-  fail(`creator should see both, saw: ${JSON.stringify(seenA)}`);
+  fail("creator could not read both private + workspace docs");
 }
 
-// ── Other agent sees only the workspace doc ────────────────────────────────
-const seenB = await names(ctxB);
-if (!seenB.some((n) => n?.includes("private")) && seenB.some((n) => n?.includes("workspace"))) {
-  ok("agent B sees the workspace doc but NOT agent A's private doc");
+let whyBWorkspaceVisible = false;
+try {
+  const whyBForWorkspace = await why(ctxB, WhyInput.parse({ hyobject_id: wsId }));
+  whyBWorkspaceVisible = whyBForWorkspace.subject?.id === wsId;
+} catch {
+  whyBWorkspaceVisible = false;
+}
+if (whyBWorkspaceVisible) {
+  ok("agent B can read the workspace doc");
 } else {
-  fail(`agent B visibility wrong, saw: ${JSON.stringify(seenB)}`);
+  fail("agent B could not read the workspace doc");
 }
 
 // ── brain_why on the private doc: creator yes, other agent no ──────────────

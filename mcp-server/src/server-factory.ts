@@ -11,11 +11,18 @@ const JsonArgs = z.object({}).passthrough();
 type ToolModule = Record<string, unknown>;
 
 type AuthModule = {
-  resolveAuth: (args: { apiKey?: string; workspaceId?: string; agentId?: string }) => { ctx: unknown };
+  resolveAuth: (args: {
+    apiKey?: string;
+    workspaceId?: string;
+    agentId?: string;
+  }) => { ctx: unknown; rawKey: string };
 };
 
 type AgentIdentityModule = {
-  canonicalizeAgentContext: (ctx: unknown) => Promise<unknown>;
+  canonicalizeAgentContext: (
+    ctx: unknown,
+    opts?: { rawApiKey?: string; requireSecretVerification?: boolean }
+  ) => Promise<unknown>;
 };
 
 type LoggerModule = {
@@ -47,7 +54,9 @@ async function invokeTool(
     workspaceId: args.workspace_id as string | undefined,
     agentId: args.agent_id as string | undefined,
   });
-  const ctx = await identityMod.canonicalizeAgentContext(auth.ctx as unknown);
+  const ctx = await identityMod.canonicalizeAgentContext(auth.ctx as unknown, {
+    rawApiKey: auth.rawKey,
+  });
   const inputSchema = toolMod[schemaExport] as unknown as { parse: (value: unknown) => unknown };
   const handler = toolMod[handlerExport] as unknown as (
     ctx: unknown,

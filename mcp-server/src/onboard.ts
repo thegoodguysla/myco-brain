@@ -47,7 +47,7 @@ function resolveContext(): Promise<SessionContext> {
     workspaceId: process.env.BRAIN_WORKSPACE_ID,
     agentId: process.env.BRAIN_AGENT_ID,
   });
-  return canonicalizeAgentContext(auth.ctx);
+  return canonicalizeAgentContext(auth.ctx, { rawApiKey: auth.rawKey });
 }
 
 // Run all DB work through withSession so the RLS context AND the audit-trigger
