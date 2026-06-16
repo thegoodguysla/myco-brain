@@ -39,6 +39,7 @@ export const SearchInput = z.object({
   embedding: z
     .array(z.number())
     .min(1)
+    .max(4096)
     .optional()
     .describe(
       "Pre-computed query embedding (must match the server's embedding " +

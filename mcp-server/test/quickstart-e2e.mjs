@@ -79,6 +79,13 @@ await step("save_memory (Demo 1: cross-session recall)", SaveMemoryInput, saveMe
   summary: "board meeting time",
   ...env("board"),
 });
+// THE out-of-the-box shape: a bare {content} call, exactly what every MCP
+// agent sends when the model follows the advertised tool schema. Regression
+// guard for the launch-week bug where mandatory contract fields made this
+// shape fail for all real clients (fields now auto-generate server-side).
+await step("save_memory (minimal args — the real MCP client shape)", SaveMemoryInput, saveMemory, {
+  content: "Out-of-the-box memory save works with no contract fields supplied.",
+});
 await step("recall_memory (Demo 2: cross-agent shared memory)", RecallMemoryInput, recallMemory, {
   query: "board meeting",
   limit: 5,

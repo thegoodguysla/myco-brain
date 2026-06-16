@@ -1,12 +1,16 @@
 {
   "name": "@mycobrain/mcp-server",
-  "version": "1.2.0",
-  "description": "Self-hosted memory layer for AI agents \u2014 MCP server backed by Postgres + pgvector + knowledge graph",
+  "version": "1.2.1",
+  "description": "Self-hosted memory layer for AI agents — MCP server backed by Postgres + pgvector + knowledge graph",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "mycobrain-mcp": "dist/index.js",
-    "mycobrain-ingest": "dist/ingest-cli.js"
+    "mycobrain-ingest": "dist/ingest-cli.js",
+    "mycobrain-onboard": "dist/onboard.js",
+    "mycobrain-doctor": "dist/doctor.js",
+    "mycobrain-review": "dist/review.js",
+    "mycobrain-rest": "dist/rest-server.js"
   },
   "repository": {
     "type": "git",
@@ -53,15 +57,25 @@
     "migrate": "node dist/migrate.js",
     "test:sharing": "node test/sharing-check.mjs",
     "test:compounding": "node test/compounding-confidence-check.mjs",
-    "test:schema-promotion": "node test/schema-promotion-check.mjs"
+    "test:schema-promotion": "node test/schema-promotion-check.mjs",
+    "audit:tokens": "node test/tool-token-audit.mjs",
+    "test:agency": "node test/agency-isolation-check.mjs",
+    "test:review": "node test/review-check.mjs",
+    "test:rest": "node test/rest-check.mjs",
+    "rest": "node dist/rest-server.js",
+    "demo:render": "bash ../demos/render.sh",
+    "test:export-import": "node test/export-import-check.mjs",
+    "test:rls": "node test/rls-least-privilege-check.mjs",
+    "test:import-embeddings": "node test/import-embeddings-check.mjs",
+    "test:onboard": "node test/onboard-check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.28.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.5",
     "pg": "^8.11.5",
     "pgvector": "^0.2.0",
-    "zod": "^3.23.8",
-    "dotenv": "^16.4.5"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
@@ -69,6 +83,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.5.0",
+    "gpt-tokenizer": "^3.4.0",
     "tsx": "^4.15.7",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"

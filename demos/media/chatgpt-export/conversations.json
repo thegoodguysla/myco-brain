@@ -1,0 +1,106 @@
+[
+  {
+    "title": "Choosing our database",
+    "create_time": 1736726400.0,
+    "current_node": "c1-n4",
+    "mapping": {
+      "c1-root": { "id": "c1-root", "message": null, "parent": null, "children": ["c1-n1"] },
+      "c1-n1": {
+        "id": "c1-n1",
+        "message": {
+          "author": { "role": "user" },
+          "create_time": 1736726401.0,
+          "content": { "content_type": "text", "parts": ["We're deciding between Postgres and MongoDB for the new product. We need relational integrity and we'll be storing embeddings for semantic search. Which should we pick?"] }
+        },
+        "parent": "c1-root",
+        "children": ["c1-n2"]
+      },
+      "c1-n2": {
+        "id": "c1-n2",
+        "message": {
+          "author": { "role": "assistant" },
+          "create_time": 1736726402.0,
+          "content": { "content_type": "text", "parts": ["Go with Postgres. You get real foreign keys and transactional integrity, and the pgvector extension stores and indexes embeddings natively, so you can do semantic search in the same database as your relational data — no second datastore to keep in sync. MongoDB would push that integrity into application code."] }
+        },
+        "parent": "c1-n1",
+        "children": ["c1-n3"]
+      },
+      "c1-n3": {
+        "id": "c1-n3",
+        "message": {
+          "author": { "role": "user" },
+          "create_time": 1736726403.0,
+          "content": { "content_type": "text", "parts": ["Good reasoning. Let's commit to Postgres with pgvector then."] }
+        },
+        "parent": "c1-n2",
+        "children": ["c1-n4"]
+      },
+      "c1-n4": {
+        "id": "c1-n4",
+        "message": {
+          "author": { "role": "assistant" },
+          "create_time": 1736726404.0,
+          "content": { "content_type": "text", "parts": ["Decided: Postgres + pgvector. I'd pin Postgres 16 and add the vector extension in your first migration so embeddings are available from day one."] }
+        },
+        "parent": "c1-n3",
+        "children": []
+      }
+    }
+  },
+  {
+    "title": "Lisbon team offsite",
+    "create_time": 1737590400.0,
+    "current_node": "c2-n2",
+    "mapping": {
+      "c2-root": { "id": "c2-root", "message": null, "parent": null, "children": ["c2-n1"] },
+      "c2-n1": {
+        "id": "c2-n1",
+        "message": {
+          "author": { "role": "user" },
+          "create_time": 1737590401.0,
+          "content": { "content_type": "text", "parts": ["Help me plan the team offsite. We're going to Lisbon the week of June 22nd, six people, and I want everyone in one place walkable to cafes."] }
+        },
+        "parent": "c2-root",
+        "children": ["c2-n2"]
+      },
+      "c2-n2": {
+        "id": "c2-n2",
+        "message": {
+          "author": { "role": "assistant" },
+          "create_time": 1737590402.0,
+          "content": { "content_type": "text", "parts": ["For six people walkable to cafes, book a single Airbnb in Alfama — it's central, full of espresso spots, and you can walk to the Time Out Market for team dinners. Reserve early; the week of June 22nd is peak season."] }
+        },
+        "parent": "c2-n1",
+        "children": []
+      }
+    }
+  },
+  {
+    "title": "Launch pricing model",
+    "create_time": 1738022400.0,
+    "current_node": "c3-n2",
+    "mapping": {
+      "c3-root": { "id": "c3-root", "message": null, "parent": null, "children": ["c3-n1"] },
+      "c3-n1": {
+        "id": "c3-n1",
+        "message": {
+          "author": { "role": "user" },
+          "create_time": 1738022401.0,
+          "content": { "content_type": "text", "parts": ["What pricing model should we launch with? I want something usage-based that doesn't scare off hobbyists."] }
+        },
+        "parent": "c3-root",
+        "children": ["c3-n2"]
+      },
+      "c3-n2": {
+        "id": "c3-n2",
+        "message": {
+          "author": { "role": "assistant" },
+          "create_time": 1738022402.0,
+          "content": { "content_type": "text", "parts": ["Use usage-based pricing at $0.002 per 1,000 tokens, with a free tier of 50,000 tokens per month. The free tier covers hobbyists and trials, and the per-token rate scales cleanly for teams without a big upfront commitment."] }
+        },
+        "parent": "c3-n1",
+        "children": []
+      }
+    }
+  }
+]

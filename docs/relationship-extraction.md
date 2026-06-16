@@ -32,12 +32,15 @@ order.
 
 | Model | Prompt | Directed accuracy | Reversed |
 | --- | --- | --- | --- |
-| `ollama:llama3.2:3b` | shipped (direction-aware) | **93%** (13/14) | 1 |
+| `ollama:llama3.2:3b` | shipped (direction-aware) | **86%** (12/14) | 2 |
 | `ollama:llama3.2:3b` | prior (direction-blind) | 79% (11/14) | 3 |
 
-The direction-aware prompt repairs most reversals; the one residual miss is the
-hardest passive case ("Devin Osei was hired by Lumen"). Numbers move a little
-run-to-run (LLMs aren't perfectly deterministic even at temperature 0).
+The direction-aware prompt repairs most reversals; the residual misses are the
+hardest passive cases (e.g. "Devin Osei was hired by Lumen"). Numbers move a
+little run-to-run (LLMs aren't perfectly deterministic even at temperature 0);
+the prompt also now requires a per-relation confidence on every edge, which
+trades a couple of fixture points for reliable confidence emission that the
+trust engine depends on.
 
 ## Endpoint recovery (edge survival)
 

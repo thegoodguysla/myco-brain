@@ -1,5 +1,7 @@
 # Local benchmark artifacts — not committed.
+.venv
 .venv/
+.cache
 .cache/
 results/
 __pycache__/

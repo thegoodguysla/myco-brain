@@ -5,6 +5,8 @@ import {
   normalizeAliases,
   normalizeKind,
   normalizeName,
+  normalizePredicate,
+  repairTruncatedJson,
   safeParse,
 } from "./extraction-worker.lib.js";
 
@@ -31,6 +33,44 @@ describe("extraction-worker.lib", () => {
       aliases: ["ACME", "Acme"],
       confidence: 1,
     });
+  });
+
+  it("normalizePredicate strips temporal adverbs so functional predicates match", () => {
+    expect(normalizePredicate("now works for")).toBe("works for");
+    expect(normalizePredicate("Currently located in")).toBe("located in");
+    expect(normalizePredicate("now currently works for")).toBe("works for");
+    expect(normalizePredicate("works for")).toBe("works for");
+    // Only leading adverbs are stripped — predicates containing these words
+    // elsewhere are untouched.
+    expect(normalizePredicate("knows now")).toBe("knows now");
+  });
+
+  it("safeParse canonicalizes relation predicates", () => {
+    const out = safeParse(
+      JSON.stringify({
+        relations: [
+          { subject: "A", object: "B", predicate: "Now Works For", confidence: 0.8 },
+        ],
+      }),
+    );
+    expect(out.relations[0].predicate).toBe("works for");
+  });
+
+  it("repairTruncatedJson closes brackets after the last complete element", () => {
+    const cut =
+      '{"entities":[{"name":"A","kind":"person"}],"relations":[{"subject":"A","predicate":"works for","object":"B"},{"subject":"A","pred';
+    expect(JSON.parse(repairTruncatedJson(cut))).toEqual({
+      entities: [{ name: "A", kind: "person" }],
+      relations: [{ subject: "A", predicate: "works for", object: "B" }],
+    });
+  });
+
+  it("safeParse recovers facts from generation-capped (truncated) output", () => {
+    const cut =
+      '{"entities":[],"relations":[{"subject":"Devin Osei","predicate":"works for","object":"Harbor & Co","confidence":0.9},{"subject":"Devin Osei","predicate":"wo';
+    const out = safeParse(cut);
+    expect(out.relations).toHaveLength(1);
+    expect(out.relations[0].object).toBe("Harbor & Co");
   });
 
   it("safeParse handles missing entities key", () => {

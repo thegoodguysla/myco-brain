@@ -7,6 +7,7 @@
  * session notes.
  */
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { withSession, type SessionContext } from "../db.js";
 import { sanitize } from "../sanitize.js";
 import { writeMemory, type MemoryWriteResult } from "../memory-write-wrapper.js";
@@ -25,14 +26,19 @@ export const SaveMemoryInput = z.object({
     .describe("Label for the source of this memory (default: agent_memory)"),
 
   // Mandatory idempotency + trace fields
+  // Contract fields — auto-generated when the caller doesn't supply them, so
+  // a bare {content: "..."} call (the shape every MCP agent uses) just works.
+  // Pass your own idempotency_key when you need retry-safe writes.
   idempotency_key: z
     .string()
     .min(1)
-    .describe("REQUIRED. Client-generated unique key for idempotency. Same key = same write."),
+    .default(() => randomUUID())
+    .describe("Unique key for idempotent writes (same key = same write). Auto-generated if omitted."),
   trace_id: z
     .string()
     .min(1)
-    .describe("REQUIRED. End-to-end trace identifier for causal chain propagation."),
+    .default(() => randomUUID())
+    .describe("End-to-end trace identifier for causal chain propagation. Auto-generated if omitted."),
   span_id: z
     .string()
     .optional()
@@ -43,7 +49,8 @@ export const SaveMemoryInput = z.object({
     .describe("Parent span in the causal chain."),
   raw_payload: z
     .record(z.unknown())
-    .describe("REQUIRED. The raw/original event payload (full transcript, full tool output, etc.)."),
+    .default({})
+    .describe("The raw/original event payload (full transcript, tool output, …). Defaults to {}."),
 });
 
 export type SaveMemoryInput = z.infer<typeof SaveMemoryInput>;

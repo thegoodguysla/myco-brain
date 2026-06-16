@@ -125,7 +125,7 @@ async def _eval_example(
         # evidence). The reader then reads the top distinct sessions whole.
         qa_hits = await run_strategy(hybrid_search, limit=QA_RETRIEVAL_LIMIT)
         try:
-            answer = await asyncio.to_thread(
+            answer, reader_tokens = await asyncio.to_thread(
                 generate_answer, qa_client, example, qa_hits, reader_model
             )
             correct = await asyncio.to_thread(
@@ -134,11 +134,14 @@ async def _eval_example(
         except Exception as exc:  # noqa: BLE001
             print(f"  [warn] QA failed for {example.question_id}: {exc}")
             answer, correct = "", False
+            reader_tokens = {"prompt_tokens": 0, "total_tokens": 0}
         row["qa"] = {
             "correct": bool(correct),
             "category": example.category,
             "generated": answer,
             "gold": example.answer,
+            "reader_prompt_tokens": reader_tokens["prompt_tokens"],
+            "reader_total_tokens": reader_tokens["total_tokens"],
         }
 
     return row

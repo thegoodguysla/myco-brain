@@ -1,0 +1,13 @@
+{
+  "name": "mycobrain-agency-starter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Provision isolated per-client workspaces + a shared playbook on Myco Brain",
+  "scripts": {
+    "provision": "node provision.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.11.5"
+  }
+}

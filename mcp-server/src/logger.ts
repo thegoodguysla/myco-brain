@@ -14,6 +14,21 @@ export interface QueryLogEntry {
   latencyMs?: number;
 }
 
+/**
+ * Strip credentials from tool inputs before they are persisted. brain_queries
+ * is a workspace-readable audit table — an API key written there would leak
+ * to every agent with stats access.
+ */
+const SENSITIVE_INPUT_KEYS = /^(api_key|apikey|.*_secret|.*_token|password)$/i;
+
+export function redactInput(input: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    out[k] = SENSITIVE_INPUT_KEYS.test(k) ? "[REDACTED]" : v;
+  }
+  return out;
+}
+
 export async function logQuery(entry: QueryLogEntry): Promise<void> {
   try {
     const pool = getPool();
@@ -25,7 +40,7 @@ export async function logQuery(entry: QueryLogEntry): Promise<void> {
         entry.workspaceId,
         entry.agentId ?? null,
         entry.toolName,
-        JSON.stringify(entry.input),
+        JSON.stringify(redactInput(entry.input)),
         entry.outputHash ?? null,
         entry.latencyMs ?? null,
       ]

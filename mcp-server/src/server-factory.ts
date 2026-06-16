@@ -1,5 +1,10 @@
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+
+const { version: PACKAGE_VERSION } = createRequire(import.meta.url)(
+  "../package.json"
+) as { version: string };
 
 const JsonArgs = z.object({}).passthrough();
 
@@ -78,7 +83,17 @@ function registerLazyTool(
 }
 
 export function createBrainMcpServer(): McpServer {
-  const server = new McpServer({ name: "brain", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "brain", version: PACKAGE_VERSION },
+    {
+      instructions: `Myco Brain is this workspace's persistent, shared memory.
+- Starting a task? Call brain_context_pack with the task topic FIRST — prior decisions, entities, and documents may already exist.
+- Learned something durable (a decision, constraint, preference, deadline)? Save it with brain_save_memory — one clear fact per call. Never save secrets or session chatter.
+- Asked "why" or "since when"? Use brain_why and cite the source instead of answering from memory alone.
+- brain_search / brain_context_pack cover ingested workspace documents; brain_recall_memory covers YOUR OWN saved memories.
+- Facts marked superseded are history, not current truth — prefer the active fact and mention the supersession if relevant.`,
+    }
+  );
 
   registerLazyTool(
     server,

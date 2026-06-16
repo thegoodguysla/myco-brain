@@ -4,10 +4,11 @@ This harness runs the [LongMemEval](https://github.com/xiaowu0162/LongMemEval)
 long-term-memory QA benchmark against Brain's retrieval + reasoning stack and
 reports a real, reproducible accuracy number.
 
-> **Headline (oracle subset):** **77% end-to-end QA accuracy** on a seeded
-> 100-question cross-category sample (reader & judge = `gpt-4o-mini`), with
-> **100% evidence-retrieval recall**. See [Results](#results) for the full
-> breakdown and the exact commands to reproduce.
+> **Headline (oracle subset, FULL — no sampling):** **73.6% end-to-end QA
+> accuracy on all 500 oracle questions** (reader `gpt-4o-mini`, judge
+> **`gpt-4o`**), with **100% evidence-retrieval recall**. See
+> [Results](#results) for the full breakdown and the exact commands to
+> reproduce.
 
 ---
 
@@ -62,9 +63,65 @@ never do.
 ## Results
 
 All runs: Postgres 17 + pgvector locally, OpenAI `text-embedding-3-small`
-embeddings, reader & judge `gpt-4o-mini`, on the `longmemeval_oracle` subset.
+embeddings, reader `gpt-4o-mini`, on the `longmemeval_oracle` subset. The
+judge model is noted per run.
 
-### Representative cross-category sample (the headline)
+### Full oracle subset, gpt-4o judge (the headline)
+
+```
+python -m evals.longmemeval.run --examples 500 --subset longmemeval_oracle --judge-model gpt-4o
+```
+
+All 500 oracle questions — no sampling — with the judge upgraded to `gpt-4o`
+so the grading itself is beyond question (the reader stays `gpt-4o-mini` so
+anyone can reproduce the run for a few dollars).
+
+| | QA accuracy |
+| --- | --- |
+| **Overall (n=500)** | **73.6%** |
+| single-session-assistant (n=56) | 100.0% |
+| single-session-user (n=70) | 94.3% |
+| knowledge-update (n=78) | 78.2% |
+| multi-session (n=133) | 68.4% |
+| temporal-reasoning (n=133) | 68.4% |
+| single-session-preference (n=30) | 10.0% |
+
+Evidence recall (Ev@1/5/10) = **100%** for all retrieval strategies. The
+`single-session-preference` category is the known outlier for factual readers:
+the gold answers grade *stylistic preference-following*, not retrieval — the
+evidence is found (100%), but a factual answer is graded as a miss. Excluding
+that category, accuracy on the remaining 470 questions is **77.7%**.
+
+### Reader sensitivity — two configs, published side by side
+
+Same harness, same 500 oracle questions, same gpt-4o judge — only the reader
+(answering model) changes:
+
+| Config | Reader | QA accuracy | Ex-preference (470q) | Mean tokens/query |
+| --- | --- | --- | --- | --- |
+| Cheap-reproducible | `gpt-4o-mini` | **73.6%** | 77.7% | —¹ |
+| Strong-reader | `gpt-4o` | **71.8%** | 76.4% | **5,567** |
+
+```
+python -m evals.longmemeval.run --examples 500 --subset longmemeval_oracle \
+  --reader-model gpt-4o --judge-model gpt-4o
+```
+
+The strong reader scores 1.8 points LOWER. With evidence recall already at
+100%, the reader is not the binding constraint — the memory layer is
+saturated and the residual is answer-style/judge interaction (gpt-4o scores
+0% on the style-graded preference category where the mini reader gets 10%,
+and trades multi-session for temporal-reasoning accuracy). This is measured
+evidence that **LongMemEval headlines are reader-sensitive: comparing single
+headline numbers across systems with different readers, retrieval budgets,
+and platforms is meaningless.** We publish both configs so nobody has to
+take our word for which one flatters us.
+
+¹ tokens/query instrumentation landed after the gpt-4o-mini run; its number
+will be added on the next re-run (the gpt-4o config's 5,567 mean prompt
+tokens ≈ the retrieved memory payload per question).
+
+### Representative cross-category sample (gpt-4o-mini judge, earlier run)
 
 ```
 python -m evals.longmemeval.run --examples 100 --subset longmemeval_oracle --shuffle --seed 0

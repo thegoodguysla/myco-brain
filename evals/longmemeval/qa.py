@@ -106,7 +106,16 @@ def generate_answer(
         temperature=0.0,
         max_tokens=256,
     )
-    return (resp.choices[0].message.content or "").strip()
+    answer = (resp.choices[0].message.content or "").strip()
+    # Token cost of answering from memory: prompt tokens ≈ the retrieved
+    # memory payload (the comparable "tokens per query" efficiency metric);
+    # total adds the answer itself.
+    usage = getattr(resp, "usage", None)
+    tokens = {
+        "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+        "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+    }
+    return answer, tokens
 
 
 # ---------------------------------------------------------------------------

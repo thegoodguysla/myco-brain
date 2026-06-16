@@ -12,7 +12,7 @@
  *   brain_annotate       — agent breadcrumb notes
  *   brain_save_memory    — simplified agent memory ingestion
  *   brain_recall_memory  — agent-scoped semantic recall
- *   brain_get_related    — relational context query with provenance (THE-567)
+ *   brain_get_related    — relational context query with provenance
  *   brain_stats          — workspace memory-health snapshot
  *
  * Authentication: BRAIN_API_KEY (brain_<workspaceId>_<agentId>_<secret>)
@@ -22,6 +22,7 @@
  */
 import "dotenv/config";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -53,7 +54,7 @@ import { getRetrievalObservabilitySnapshot } from "./retrieval-observability.js"
 // Tool manifest
 // ---------------------------------------------------------------------------
 
-const TOOLS: Tool[] = [
+export const TOOLS: Tool[] = [
   {
     name: "brain_context_pack",
     description:
@@ -88,9 +89,6 @@ const TOOLS: Tool[] = [
           items: { type: "number" },
           description: "Filter by type_ids",
         },
-        workspace_id: { type: "string", description: "Workspace UUID (required for service-role auth)" },
-        agent_id: { type: "string", description: "Agent ID (overrides key-derived ID)" },
-        api_key: { type: "string", description: "Brain API key (overrides env)" },
       },
       required: ["query"],
     },
@@ -120,9 +118,6 @@ const TOOLS: Tool[] = [
           type: "string",
           enum: ["score", "date_desc", "date_asc"],
         },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["query"],
     },
@@ -140,9 +135,6 @@ const TOOLS: Tool[] = [
         entity_a_id: { type: "string", format: "uuid" },
         entity_b_id: { type: "string", format: "uuid" },
         limit_vc: { type: "number", description: "Max VC entries (default 20)" },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
     },
   },
@@ -158,9 +150,6 @@ const TOOLS: Tool[] = [
         depth: { type: "number", enum: [1, 2] },
         relation_types: { type: "array", items: { type: "number" } },
         limit: { type: "number" },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["node_id", "node_kind"],
     },
@@ -183,9 +172,6 @@ const TOOLS: Tool[] = [
         subtype_id: { type: "number" },
         sharing_type_id: { type: "number" },
         tags: { type: "object", additionalProperties: { type: "string" } },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["mode"],
     },
@@ -211,9 +197,6 @@ const TOOLS: Tool[] = [
         object_id: { type: "string", format: "uuid" },
         predicate: { type: "string" },
         relation_type_id: { type: "number" },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["kind"],
     },
@@ -236,9 +219,6 @@ const TOOLS: Tool[] = [
           description: "Existing session ID (optional)",
         },
         related_hyobject_id: { type: "string", format: "uuid" },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["kind", "content"],
     },
@@ -263,9 +243,11 @@ const TOOLS: Tool[] = [
           type: "string",
           description: "Label for the source of this memory (default: agent_memory)",
         },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
+        idempotency_key: {
+          type: "string",
+          description:
+            "Optional unique key for retry-safe writes (same key = same write). Auto-generated if omitted.",
+        },
       },
       required: ["content"],
     },
@@ -273,7 +255,7 @@ const TOOLS: Tool[] = [
   {
     name: "brain_get_related",
     description:
-      "THE-567: Relational context query with provenance. Returns related nodes for a subject with edge metadata, direction, and VC/source provenance references.",
+      "Relational context query with provenance. Returns related nodes for a subject with edge metadata, direction, and VC/source provenance references.",
     inputSchema: {
       type: "object",
       properties: {
@@ -294,9 +276,6 @@ const TOOLS: Tool[] = [
         include_vc: { type: "boolean", default: true },
         vc_limit_per_edge: { type: "number", description: "Default 5, max 20" },
         limit: { type: "number", description: "Default 25, max 100" },
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["subject_id", "subject_kind"],
     },
@@ -331,8 +310,6 @@ const TOOLS: Tool[] = [
           enum: ["none", "cohere"],
           default: "none",
         },
-        workspace_id: { type: "string" },
-        api_key: { type: "string" },
       },
       required: ["query"],
     },
@@ -344,9 +321,6 @@ const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        workspace_id: { type: "string" },
-        agent_id: { type: "string" },
-        api_key: { type: "string" },
       },
     },
   },
@@ -356,9 +330,24 @@ const TOOLS: Tool[] = [
 // Server
 // ---------------------------------------------------------------------------
 
+// Usage contract delivered to every connected agent at initialization — the
+// MCP `instructions` field. This is what makes memory work well out of the
+// box: clients surface it to their model, so agents know WHEN to recall,
+// save, and cite without any per-project setup. Deeper policy: docs/agent-setup.md.
+const SERVER_INSTRUCTIONS = `Myco Brain is this workspace's persistent, shared memory.
+- Starting a task? Call brain_context_pack with the task topic FIRST — prior decisions, entities, and documents may already exist.
+- Learned something durable (a decision, constraint, preference, deadline)? Save it with brain_save_memory — one clear fact per call. Never save secrets or session chatter.
+- Asked "why" or "since when"? Use brain_why and cite the source instead of answering from memory alone.
+- brain_search / brain_context_pack cover ingested workspace documents; brain_recall_memory covers YOUR OWN saved memories.
+- Facts marked superseded are history, not current truth — prefer the active fact and mention the supersession if relevant.`;
+
+const { version: PACKAGE_VERSION } = createRequire(import.meta.url)(
+  "../package.json"
+) as { version: string };
+
 const server = new Server(
-  { name: "brain", version: "0.1.0" },
-  { capabilities: { tools: {} } }
+  { name: "brain", version: PACKAGE_VERSION },
+  { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -372,7 +361,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const rawArgs = args as Record<string, unknown>;
 
-  // Resolve auth from args or env
+  // Resolve auth from args or env. workspace_id/agent_id overrides are only
+  // honored for service-role JWTs — for brain_* keys, identity is derived
+  // from the key alone (see auth.ts). They are deliberately absent from the
+  // advertised tool schemas so models never attempt identity overrides.
   let auth: ReturnType<typeof resolveAuth>;
   try {
     auth = resolveAuth({

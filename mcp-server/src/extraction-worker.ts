@@ -362,10 +362,15 @@ async function persistSuccess(
     let relationsSuperseded = 0;
     for (const rel of output.relations ?? []) {
       const relConfidence = clampConfidence(rel.confidence);
-      if (relConfidence < threshold) continue;
       const subjectId = await resolveRelationEndpoint(client, chunk.workspaceId, nameToEntityId, rel.subject);
       const objectId = await resolveRelationEndpoint(client, chunk.workspaceId, nameToEntityId, rel.object);
       if (!subjectId || !objectId || subjectId === objectId) continue;
+
+      // Below the promotion threshold the relation is NOT discarded — it
+      // waits in the review queue where brain_stats surfaces it. (Models in
+      // a degenerate generation omit confidence entirely, which defaults
+      // low; silently dropping those would lose real facts with no trace.)
+      const promotable = relConfidence >= threshold && !REQUIRE_HUMAN_REVIEW;
 
       await client.query(
         `INSERT INTO proposed_relations
@@ -380,12 +385,12 @@ async function persistSuccess(
           chunk.hyobjectId,
           EXTRACTOR_LABEL,
           relConfidence,
-          REQUIRE_HUMAN_REVIEW ? "pending" : "auto_promoted",
+          promotable ? "auto_promoted" : "pending",
         ],
       );
-      // Strict curation mode: the relation waits in the review queue; no
-      // canonical graph edge is written.
-      if (REQUIRE_HUMAN_REVIEW) continue;
+      // Strict curation / low confidence: the relation waits in the review
+      // queue; no canonical graph edge is written.
+      if (!promotable) continue;
 
       // entity_relations is the promoted graph edge. Find-or-create (one
       // ACTIVE edge per pair + predicate — a superseded edge stays closed;

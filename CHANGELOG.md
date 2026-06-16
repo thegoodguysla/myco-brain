@@ -5,6 +5,55 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.1] — 2026-06-13
+
+A reliability, security, and onboarding release. No tool-contract changes.
+
+### Added
+- **Import your ChatGPT / Claude history.** `mycobrain-ingest --from
+  chatgpt-export ./export.zip` and `--from claude-export ./export.zip` turn
+  an OpenAI or claude.ai data export into provenance-tracked, deduplicated,
+  searchable memory — one document per conversation. ChatGPT branched
+  conversations import the ACTIVE transcript (not rejected regenerations);
+  re-importing the same export never duplicates (content-hash dedup);
+  `brain_why` traces every imported fact back to its export file.
+  Proof: `npm run test:export-import`.
+- **Out-of-box agent instructions.** The MCP server now ships a usage
+  contract (`instructions`) to every connected client at initialization, so
+  agents know WHEN to recall, save, and cite without per-project setup. Plus a
+  copy-paste behavioral block in `docs/agent-setup.md`.
+- **Demo corpus contradiction + "magic moment."** The bundled demo corpus
+  carries a deliberate contradiction (a person changes employers); with the
+  keyless local graph running, the trust engine supersedes the old fact
+  (kept, not deleted) and `brain_why` shows both sources — supersession on
+  the user's own ingested data, not a scripted demo.
+
+### Fixed
+- **`brain_save_memory` works out of the box.** Previously failed with
+  "Validation error: Required" because `idempotency_key` / `trace_id` /
+  `raw_payload` were required but not advertised; they now auto-default.
+- **Security — agent identity comes only from the key.** For `brain_*` API
+  keys, caller-supplied `workspace_id` / `agent_id` tool arguments are now
+  ignored (they could let one agent impersonate another and read its private
+  memories); identity overrides remain a service-role-only privilege.
+  `api_key`/secrets are redacted before being written to the `brain_queries`
+  audit table, and the docker-compose ports bind to `127.0.0.1`. Regression
+  in `npm run test:sharing`.
+- **Local-model extraction hardening.** Ollama calls cap generation and time
+  out (no more runaway-loop stalls that froze the extraction queue), retry
+  transient drops, and recover facts from truncated JSON; relation predicates
+  are canonicalized (so `now works for` matches `works for` for supersession),
+  duplicate triples deduped, and sub-threshold relations queue for review
+  instead of being silently dropped.
+- **Onboarding friction.** The README hero block now runs verbatim from a
+  fresh clone (the ingest CLI defaults to the quickstart stack when no env is
+  set); a "Connect your client" section leads with a Claude Code one-liner.
+- **Honesty/accuracy.** Server version is read from `package.json`; the
+  direction-accuracy figure is corrected to the re-measured **86%** (the
+  confidence-emission prompt fix traded a few fixture points to unblock the
+  trust engine on local models); an internal ticket id was removed from a
+  tool description.
+
 ## [1.2.0] — 2026-06-12
 
 ### Added
@@ -80,7 +129,7 @@ break in a 1.x release.
   the model to classify exactly the missing endpoint names against the same
   text (example-anchored prompt; anything beyond the requested names is
   discarded). Edge survival: **0% → 79%**, direction accuracy unchanged at
-  93%; the remainder are junk phrase-objects that are correctly rejected.
+  86%; the remainder are junk phrase-objects that are correctly rejected.
   The direction check now also measures and gates **endpoint completeness**
   (`BRAIN_ENDPOINT_MIN_COMPLETENESS`, default 0.75).
 
@@ -89,7 +138,7 @@ break in a 1.x release.
   states that relations are directed (`subject → predicate → object`), defines
   subject vs. object, and gives worked directional examples (including the
   passive-voice trap that flips small models). On the gold fixture this lifts
-  `llama3.2:3b` direction accuracy from ~79% to ~93%. The prompt and provider
+  `llama3.2:3b` direction accuracy from ~79% to ~86%. The prompt and provider
   calls moved to `extraction.ts` (importable without starting the worker loop).
 
 ### Added

@@ -116,6 +116,36 @@ try {
 if (whyBFailed) ok("agent B cannot brain_why the private doc (not found)");
 else fail("agent B could read the private doc via brain_why");
 
+// ── Impersonation: B's key + agent_id/workspace_id overrides must be inert ─
+// The override params used to be honored for brain_* keys — that let any
+// agent read another agent's private docs. Identity must come from the key.
+{
+  const { ctx: spoofRaw } = resolveAuth({
+    apiKey: `brain_${WS}_${A2}_localdev`,
+    workspaceId: "11111111-1111-1111-1111-111111111111",
+    agentId: A1,
+  });
+  if (spoofRaw.actorId === A2 && spoofRaw.workspaceId === WS) {
+    ok("agent_id/workspace_id overrides are ignored for brain_* keys");
+  } else {
+    fail(
+      `impersonation hole: key for ${A2} resolved to actor=${spoofRaw.actorId} ws=${spoofRaw.workspaceId}`
+    );
+  }
+  const spoofCtx = await canonicalizeAgentContext(spoofRaw);
+  let spoofWhyFailed = false;
+  try {
+    await why(spoofCtx, WhyInput.parse({ hyobject_id: privId }));
+  } catch {
+    spoofWhyFailed = true;
+  }
+  if (spoofWhyFailed) {
+    ok("spoofed context still cannot read agent A's private doc");
+  } else {
+    fail("spoofed context read agent A's private doc via brain_why");
+  }
+}
+
 // ── Service role sees everything ───────────────────────────────────────────
 const svcCtx = {
   workspaceId: WS,

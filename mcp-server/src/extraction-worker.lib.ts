@@ -34,6 +34,24 @@ export function normalizeKind(kind: unknown): string {
   return kind.trim().toLowerCase();
 }
 
+/**
+ * Canonicalize a predicate. Small local models decorate predicates with
+ * temporal adverbs ("now works for", "currently located in") — without
+ * stripping them, the edge lands beside the canonical one instead of
+ * matching it, and functional-predicate supersession never fires.
+ */
+const PREDICATE_ADVERBS =
+  /^(now|currently|still|recently|previously|formerly|today)\s+/;
+
+export function normalizePredicate(predicate: string): string {
+  let p = predicate.toLowerCase().trim();
+  for (let prev = ""; prev !== p; ) {
+    prev = p;
+    p = p.replace(PREDICATE_ADVERBS, "");
+  }
+  return p;
+}
+
 export function normalizeAliases(aliases: unknown): string[] {
   if (!Array.isArray(aliases)) return [];
   const seen = new Set<string>();
@@ -42,15 +60,60 @@ export function normalizeAliases(aliases: unknown): string[] {
     const v = item.trim();
     if (!v) continue;
     seen.add(v);
+    // Looping models hallucinate endless alias variants; nothing legitimate
+    // needs more than a handful.
+    if (seen.size >= 5) break;
   }
   return [...seen];
 }
 
+/**
+ * Repair JSON cut off mid-generation (num_predict cap hit during a model
+ * repetition loop): rewind to the last complete array element, then close
+ * every bracket still open. The complete leading elements — the actual
+ * extraction — survive; only the truncated tail is dropped.
+ */
+export function repairTruncatedJson(text: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  let lastComplete = -1; // index AFTER the last cleanly-closed value at depth ≥1
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") {
+      stack.pop();
+      lastComplete = i + 1;
+    }
+  }
+  if (lastComplete === -1) return text;
+  // Re-scan the kept prefix to know which brackets remain open.
+  const kept = text.slice(0, lastComplete);
+  const open: string[] = [];
+  inString = false;
+  escaped = false;
+  for (const ch of kept) {
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{" || ch === "[") open.push(ch);
+    else if (ch === "}" || ch === "]") open.pop();
+  }
+  return kept + open.reverse().map((c) => (c === "{" ? "}" : "]")).join("");
+}
+
 export function safeParse(jsonText: string): ExtractionOutput {
-  const parsed = JSON.parse(jsonText) as {
-    entities?: unknown;
-    relations?: unknown;
-  };
+  let parsed: { entities?: unknown; relations?: unknown };
+  try {
+    parsed = JSON.parse(jsonText) as typeof parsed;
+  } catch {
+    parsed = JSON.parse(repairTruncatedJson(jsonText)) as typeof parsed;
+  }
   const rawEntities = Array.isArray(parsed.entities) ? parsed.entities : [];
   const entities: ExtractedEntity[] = [];
 
@@ -68,7 +131,9 @@ export function safeParse(jsonText: string): ExtractionOutput {
   }
 
   const rawRelations = Array.isArray(parsed.relations) ? parsed.relations : [];
-  const relations: ExtractedRelation[] = [];
+  // Looping models re-emit the same triple dozens of times — dedupe on
+  // (subject, predicate, object), keeping the highest confidence seen.
+  const relationByKey = new Map<string, ExtractedRelation>();
   for (const item of rawRelations) {
     if (!item || typeof item !== "object") continue;
     const obj = item as Record<string, unknown>;
@@ -79,15 +144,18 @@ export function safeParse(jsonText: string): ExtractionOutput {
     // and the two endpoints differ.
     if (!subject || !object || !predicate) continue;
     if (subject.toLowerCase() === object.toLowerCase()) continue;
-    relations.push({
+    const rel: ExtractedRelation = {
       subject,
       object,
-      predicate: predicate.toLowerCase(),
+      predicate: normalizePredicate(predicate),
       confidence: clampConfidence(obj.confidence),
-    });
+    };
+    const key = `${rel.subject.toLowerCase()}|${rel.predicate}|${rel.object.toLowerCase()}`;
+    const prev = relationByKey.get(key);
+    if (!prev || rel.confidence > prev.confidence) relationByKey.set(key, rel);
   }
 
-  return { entities, relations };
+  return { entities, relations: [...relationByKey.values()] };
 }
 
 export function fakeExtractEntities(text: string): ExtractionOutput {

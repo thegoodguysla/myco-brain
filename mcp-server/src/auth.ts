@@ -47,12 +47,14 @@ export function resolveAuth(params: {
   }
 
   // Service-role JWT (Supabase): starts with 'eyJ' (base64 JWT header)
+  // Service callers are trusted system components — per-request identity
+  // overrides are legitimate here (and only here).
   if (apiKey.startsWith("eyJ")) {
-    const workspaceId = params.workspaceId;
-    const agentId = params.agentId;
+    const workspaceId = params.workspaceId ?? process.env.BRAIN_WORKSPACE_ID;
+    const agentId = params.agentId ?? process.env.BRAIN_AGENT_ID;
     if (!workspaceId) {
       throw new AuthError(
-        "workspace_id is required when using service-role JWT"
+        "workspace_id is required when using service-role JWT (set BRAIN_WORKSPACE_ID)"
       );
     }
     return {
@@ -67,6 +69,10 @@ export function resolveAuth(params: {
   }
 
   // Per-agent API key: brain_<workspaceId>_<agentId>_<secret>
+  // Identity comes ONLY from the key. Caller-supplied workspace_id/agent_id
+  // are ignored here — honoring them would let any agent (or a prompt
+  // injection driving one) impersonate another agent and read its private
+  // memories. Identity overrides are a service-role privilege.
   if (apiKey.startsWith("brain_")) {
     const parts = apiKey.split("_");
     if (parts.length < 4) {
@@ -78,9 +84,9 @@ export function resolveAuth(params: {
     return {
       rawKey: apiKey,
       ctx: {
-        workspaceId: params.workspaceId ?? workspaceId,
+        workspaceId,
         principalRole: "agent",
-        actorId: params.agentId ?? agentId,
+        actorId: agentId,
         actorKind: "agent",
       },
     };

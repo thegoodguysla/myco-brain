@@ -30,12 +30,15 @@ export const EXTRACTION_SYSTEM =
   '"predicate" is a short active-voice verb phrase (e.g. "acquired", "founded", ' +
   '"works for", "reports to", "manages", "owns", "hired", "located in"). ' +
   "Get the direction right — do not swap subject and object:\n" +
-  '- "Acme acquired Beta" → {"subject":"Acme","predicate":"acquired","object":"Beta"} (never the reverse).\n' +
-  '- "Priya reports to Dan" → {"subject":"Priya","predicate":"reports to","object":"Dan"}.\n' +
-  '- "Northwind hired Lumen" → {"subject":"Northwind","predicate":"hired","object":"Lumen"}.\n' +
+  '- "Acme acquired Beta" → {"subject":"Acme","predicate":"acquired","object":"Beta","confidence":0.9} (never the reverse).\n' +
+  '- "Priya reports to Dan" → {"subject":"Priya","predicate":"reports to","object":"Dan","confidence":0.85}.\n' +
+  '- "Northwind hired Lumen" → {"subject":"Northwind","predicate":"hired","object":"Lumen","confidence":0.9}.\n' +
   "Both subject and object MUST be names that also appear in entities. " +
   "Only include a relation the text clearly states; if unsure of the direction, omit it. " +
-  '"confidence" is 0-1; use >=0.7 when sure. No extra keys, no prose.';
+  '"aliases" lists OTHER spellings the text itself uses for the same entity ' +
+  "(max 3); use [] when the text has none — never invent variants. " +
+  'EVERY entity and EVERY relation must include "confidence" (0-1; use >=0.7 ' +
+  "when the text states it plainly). No extra keys, no prose.";
 
 export interface ExtractConfig {
   provider: "anthropic" | "ollama" | "fake";
@@ -155,20 +158,41 @@ export async function extractWithOllama(
   system: string,
   input: string
 ): Promise<ExtractionOutput> {
-  const res = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      format: "json", // forces valid JSON output
-      options: { temperature: 0 },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: `Text:\n\n${input}` },
-      ],
-    }),
-  });
+  // Two failure modes guarded here, both observed with small local models:
+  //  1. Runaway generation — with format:json a 3B model can fall into a
+  //     repetition loop and never finish. Uncapped, the request holds
+  //     Ollama's single-slot queue until the socket dies ("fetch failed")
+  //     and every chunk behind it stalls. num_predict bounds generation;
+  //     the AbortSignal bounds wall-clock; safeParse repairs the (possibly
+  //     mid-loop truncated) JSON, which still carries the real facts first.
+  //  2. Transient connection drops — retried so one blip doesn't burn a
+  //     whole extraction attempt. HTTP 4xx/5xx are real and not retried.
+  const timeoutMs = Number(process.env.BRAIN_OLLAMA_TIMEOUT_MS || 120_000);
+  let res: Response | undefined;
+  let lastErr: unknown;
+  for (let i = 0; i < 3 && !res; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1000 * i));
+    try {
+      res = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({
+          model,
+          stream: false,
+          format: "json", // forces valid JSON output
+          options: { temperature: 0, num_predict: 1200 },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: `Text:\n\n${input}` },
+          ],
+        }),
+      });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!res) throw lastErr;
   if (!res.ok) {
     const err = await res.text().catch(() => res.statusText);
     throw new Error(`Ollama extraction error ${res.status}: ${err}`);

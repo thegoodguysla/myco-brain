@@ -7,3 +7,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Agency starter kit local install + operator config
+examples/agency/node_modules/
+examples/agency/clients.json

@@ -119,6 +119,11 @@ class QAResult:
     reader_model: str = ""
     judge_model: str = ""
     retrieval_strategy: str = ""
+    # Token efficiency: mean tokens the reader consumed per query. Prompt
+    # tokens ≈ the retrieved memory payload (the comparable cross-system
+    # "tokens per query" metric); total adds the generated answer.
+    mean_prompt_tokens: float = 0.0
+    mean_total_tokens: float = 0.0
     by_category: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
@@ -188,12 +193,24 @@ def aggregate_qa(
             "n": nc,
         }
 
+    with_tokens = [e for e in per_example if e.get("reader_prompt_tokens")]
+    mean_prompt = (
+        sum(e["reader_prompt_tokens"] for e in with_tokens) / len(with_tokens)
+        if with_tokens else 0.0
+    )
+    mean_total = (
+        sum(e.get("reader_total_tokens", 0) for e in with_tokens) / len(with_tokens)
+        if with_tokens else 0.0
+    )
+
     return QAResult(
         accuracy=accuracy,
         n=n,
         reader_model=reader_model,
         judge_model=judge_model,
         retrieval_strategy=retrieval_strategy,
+        mean_prompt_tokens=mean_prompt,
+        mean_total_tokens=mean_total,
         by_category=by_category,
     )
 
@@ -214,6 +231,11 @@ def format_report(
             f"retrieval={qa.retrieval_strategy}, reader={qa.reader_model}, "
             f"judge={qa.judge_model})"
         )
+        if qa.mean_prompt_tokens:
+            lines.append(
+                f"Mean tokens/query: {qa.mean_prompt_tokens:,.0f} prompt "
+                f"(memory payload) · {qa.mean_total_tokens:,.0f} total"
+            )
         if qa.by_category:
             lines.append("  by category:")
             for cat, stats in sorted(qa.by_category.items()):

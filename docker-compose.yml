@@ -23,7 +23,9 @@ services:
       POSTGRES_PASSWORD: brain
       POSTGRES_DB: brain
     ports:
-      - "5432:5432"
+      # Bound to loopback: the quickstart credentials are public, so the
+      # database must never listen on a LAN/public interface by default.
+      - "127.0.0.1:5432:5432"
     volumes:
       - myco_postgres_data:/var/lib/postgresql/data
       - ./supabase/migrations:/docker-entrypoint-initdb.d:ro
@@ -52,7 +54,7 @@ services:
       BRAIN_COHERE_API_KEY: ${BRAIN_COHERE_API_KEY:-}
       BRAIN_HEALTH_PORT: "8080"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     stdin_open: true
     tty: true
     depends_on:

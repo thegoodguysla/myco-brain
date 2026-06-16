@@ -14,7 +14,19 @@ import { createHash } from "node:crypto";
 import type pg from "pg";
 import { withSession, getPool, type SessionContext } from "../db.js";
 import { sanitize } from "../sanitize.js";
-import { embedAndStoreChunks } from "../embed.js";
+import { embedAndStoreChunks, getEmbeddingProvider } from "../embed.js";
+
+// Best-effort background embedding tasks started by ingest() (text mode). The
+// long-running MCP server lets these settle on their own; short-lived callers
+// such as the bulk-import CLI must call flushPendingEmbeddings() before closing
+// the pool / exiting, or the process tears down mid-embed and vector search
+// never gets populated for what was just imported.
+const pendingEmbeddings = new Set<Promise<void>>();
+
+/** Await all in-flight background embedding tasks. Safe to call any time. */
+export async function flushPendingEmbeddings(): Promise<void> {
+  await Promise.allSettled([...pendingEmbeddings]);
+}
 
 export const IngestInput = z.object({
   mode: z.enum(["text", "url", "file"]),
@@ -61,6 +73,7 @@ export interface IngestResult {
   processing_state: string;
   name: string | null;
   storage_uri: string | null;
+  deduped?: boolean;
   message: string;
 }
 
@@ -273,10 +286,13 @@ export async function ingest(
 
       // Embed chunks after the transaction — best-effort, non-blocking.
       // Uses a fresh pool client so the embedding writes don't share the
-      // transaction connection (which is released on withSession exit).
+      // transaction connection (which is released on withSession exit). The
+      // task is tracked in `pendingEmbeddings` so short-lived callers (the
+      // bulk-import CLI) can await it before closing the pool / exiting —
+      // otherwise the process dies mid-embed and vector search stays empty.
       if (chunksForEmbedding.length > 0) {
         const embeddingChunks = chunksForEmbedding.slice();
-        (async () => {
+        const task = (async () => {
           const embedClient = await getPool().connect();
           try {
             await embedAndStoreChunks(embedClient, embeddingChunks);
@@ -286,15 +302,17 @@ export async function ingest(
             embedClient.release();
           }
         })();
+        pendingEmbeddings.add(task);
+        void task.finally(() => pendingEmbeddings.delete(task));
       }
 
       const modeNote = deduped
         ? "Already ingested — identical content matched an existing object by content hash (deduplicated, no duplicate created)."
         : isTextMode
           ? `Text indexed inline: ${chunkCount} chunk(s) written, BM25 searchable immediately.${
-              process.env.BRAIN_OPENAI_API_KEY
-                ? " Vector embeddings queued."
-                : " Set BRAIN_OPENAI_API_KEY to enable vector search."
+              getEmbeddingProvider()
+                ? ` Vector embeddings (${getEmbeddingProvider()?.name}) computing in the background.`
+                : " No embedding provider configured — set BRAIN_EMBED_PROVIDER=ollama (keyless) or BRAIN_OPENAI_API_KEY for semantic search."
             }`
           : "Hyobject created with processing_state=pending_deterministic. The ingestion worker will parse, chunk, and embed the content.";
 
@@ -303,7 +321,12 @@ export async function ingest(
         processing_state: row.processing_state,
         name: row.name,
         storage_uri: row.storage_uri,
-        message: modeNote,
+        // Additive: true when content-hash dedup matched an existing document
+        // (callers like the bulk-import CLI report ingested vs skipped).
+        deduped,
+        message: deduped
+          ? "Identical content already exists — returned the existing document (content-hash dedup)."
+          : modeNote,
       };
     }
   );
