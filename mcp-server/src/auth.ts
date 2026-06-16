@@ -68,10 +68,18 @@ export function resolveAuth(params: {
     );
   }
 
-  // Service-role JWT (Supabase): starts with 'eyJ' (base64 JWT header)
-  // Service callers are trusted system components — per-request identity
-  // overrides are legitimate here (and only here).
+  // Service-role JWT (Supabase): starts with 'eyJ' AND must equal the configured
+  // BRAIN_SERVICE_ROLE_KEY. Without the equality check, ANY "eyJ…" string would be
+  // accepted as an RLS-bypassing service caller — a caller-supplied "eyJ…" could
+  // then override workspace/agent and read another workspace. Service callers are
+  // trusted system components, so per-request identity overrides are legitimate
+  // here (and only here).
   if (apiKey.startsWith("eyJ")) {
+    if (!serviceKey || apiKey !== serviceKey) {
+      throw new AuthError(
+        "service-role JWT does not match the configured BRAIN_SERVICE_ROLE_KEY"
+      );
+    }
     const workspaceId = params.workspaceId ?? process.env.BRAIN_WORKSPACE_ID;
     const agentId = params.agentId ?? process.env.BRAIN_AGENT_ID;
     if (!workspaceId) {

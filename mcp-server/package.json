@@ -1,6 +1,6 @@
 {
   "name": "@mycobrain/mcp-server",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Self-hosted memory layer for AI agents — MCP server backed by Postgres + pgvector + knowledge graph",
   "type": "module",
   "main": "dist/index.js",
@@ -49,6 +49,9 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts src/smoke-test.e2e.ts",
     "test:e2e:memory": "vitest run --config vitest.e2e.config.ts src/smoke-memory.e2e.ts",
     "test:direction": "node test/extraction-direction-check.mjs",
+    "test:reliability": "node test/extraction-reliability-check.mjs",
+    "test:contradiction": "node test/contradiction-hardening-check.mjs",
+    "test:proposal-sources": "node test/proposal-sources-check.mjs",
     "test:dynamic-schema": "node test/dynamic-schema-check.mjs",
     "test:strict-mode": "node test/strict-mode-check.mjs",
     "test:local-embeddings": "node test/local-embeddings-check.mjs",
@@ -70,7 +73,7 @@
     "test:onboard": "node test/onboard-check.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.28.0",
+    "@anthropic-ai/sdk": "^0.104.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "dotenv": "^16.4.5",
     "pg": "^8.11.5",
@@ -86,6 +89,6 @@
     "gpt-tokenizer": "^3.4.0",
     "tsx": "^4.15.7",
     "typescript": "^5.4.5",
-    "vitest": "^1.6.0"
+    "vitest": "^4.1.9"
   }
 }

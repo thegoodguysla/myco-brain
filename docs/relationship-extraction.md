@@ -59,7 +59,7 @@ rejected — that's the guard working as intended.
 | Model | Edge survival (both endpoints in entities) |
 | --- | --- |
 | `ollama:llama3.2:3b` without recovery | 0% (0/14) |
-| `ollama:llama3.2:3b` with recovery | **79%** (11/14; remainder are junk objects, correctly rejected) |
+| `ollama:llama3.2:3b` with recovery | **~80%** (11–12 of 14; remainder are junk objects, correctly rejected) |
 
 The regression check measures this as **endpoint completeness** and fails
 below `BRAIN_ENDPOINT_MIN_COMPLETENESS` (default 0.75). Direction accuracy is
@@ -81,7 +81,9 @@ BRAIN_EXTRACTION_PROVIDER=anthropic BRAIN_ANTHROPIC_API_KEY=sk-ant-... \
 
 The check fails when directed accuracy falls below `BRAIN_DIRECTION_MIN_ACCURACY`
 (default `0.8`) — high enough to catch a regression to the old direction-blind
-prompt (79%), low enough to absorb normal model variance. It **skips** (exit 0)
+prompt (which scored ~79% **directed accuracy**, 11/14 — a separate metric from
+the edge-survival figure above), low enough to absorb normal model variance. It
+**skips** (exit 0)
 when no real extraction model is configured, so it never blocks the keyless CI
 quickstart. No database is required.
 

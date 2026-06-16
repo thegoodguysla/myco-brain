@@ -3,6 +3,9 @@
 .venv/
 .cache
 .cache/
-results/
+results/*
+# Keep the committed n=500 runs that back the published headline (73.6% gpt-4o-mini, 71.8% gpt-4o)
+!results/run_20260612T003829_n500.json
+!results/run_20260612T212512_n500.json
 __pycache__/
 *.pyc

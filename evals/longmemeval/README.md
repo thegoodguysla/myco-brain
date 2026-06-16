@@ -10,6 +10,12 @@ reports a real, reproducible accuracy number.
 > [Results](#results) for the full breakdown and the exact commands to
 > reproduce.
 
+> **Verify without re-running:** the two canonical `n=500` oracle runs behind these
+> numbers are committed under [`results/`](./results/) —
+> `run_20260612T003829_n500.json` (73.6%, reader `gpt-4o-mini`) and
+> `run_20260612T212512_n500.json` (71.8%, reader `gpt-4o`). Open either and read
+> `qa.accuracy` and `qa.by_category`. Fresh runs land in the same dir (gitignored).
+
 ---
 
 ## What this measures

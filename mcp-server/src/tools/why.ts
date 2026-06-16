@@ -195,7 +195,8 @@ export async function why(
       }
 
       const directRes = await client.query(
-        `SELECT id, predicate, confidence, source_hyobject_id, created_at
+        `SELECT id, predicate, confidence, source_hyobject_id, created_at,
+                entity1_id, entity2_id
          FROM entity_relations
          WHERE (
              (entity1_id = $1 AND entity2_id = $2)
@@ -214,12 +215,18 @@ export async function why(
 
         // Compounding confidence: distinct backing documents + the audited
         // confidence history for this edge.
+        // Count distinct backing documents for the TRIPLE (subject, predicate,
+        // object), not just this edge row — matching how the compounded
+        // confidence is computed (confidence.ts rescores per triple). A
+        // re-asserted edge inherits the triple's history, so a per-row count
+        // would under-report relative to the confidence it's shown beside.
         const evRes = await client.query<{ n: number }>(
           `SELECT COUNT(DISTINCT evidence_hyobject_id)::int AS n
              FROM relation_evidence
-            WHERE relation_kind = 'entity_relation' AND relation_row_id = $1
+            WHERE relation_kind = 'entity_relation'
+              AND source_node_id = $1 AND target_node_id = $2 AND predicate = $3
               AND evidence_hyobject_id IS NOT NULL`,
-          [row.id]
+          [row.entity1_id, row.entity2_id, row.predicate]
         );
         const trendRes = await client.query<{ v: string }>(
           `SELECT new_value #>> '{}' AS v

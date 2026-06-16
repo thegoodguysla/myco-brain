@@ -18,8 +18,11 @@ import {
 import { rescoreEntityRelation } from "./confidence.js";
 import { supersedeContradictedRelations } from "./contradiction.js";
 import { autoPromoteSchemaProposals } from "./schema-promotion.js";
-
-type ExtractionStatus = "pending" | "processing" | "succeeded" | "failed";
+import {
+  claimChunkBatch,
+  markChunkFailed,
+  reapStaleProcessing,
+} from "./extraction-lifecycle.js";
 
 interface ClaimedChunk {
   chunkId: string;
@@ -31,6 +34,10 @@ interface ClaimedChunk {
 const POLL_INTERVAL_MS = Number(process.env.BRAIN_EXTRACTION_POLL_MS ?? 5000);
 const BATCH_SIZE = Number(process.env.BRAIN_EXTRACTION_BATCH_SIZE ?? 10);
 const MAX_ATTEMPTS = Number(process.env.BRAIN_EXTRACTION_MAX_ATTEMPTS ?? 3);
+// How long a chunk may sit in 'processing' before a crashed/restarted worker is
+// assumed and the chunk is reclaimed (reapStaleProcessing). Must exceed the
+// worst-case single-chunk extraction time so an in-flight chunk is never stolen.
+const LEASE_MS = Number(process.env.BRAIN_EXTRACTION_LEASE_MS ?? 600000);
 const MAX_TEXT_CHARS = Number(process.env.BRAIN_EXTRACTION_MAX_TEXT_CHARS ?? 8000);
 const MODEL = process.env.BRAIN_EXTRACTION_MODEL ?? "claude-sonnet-4-20250514";
 
@@ -80,44 +87,29 @@ const EXTRACTOR_LABEL =
       : "program:fake-extractor";
 
 async function claimBatch(): Promise<ClaimedChunk[]> {
-  return withSession(auth.ctx, async (client) => {
-    const claimed = await client.query<ClaimedChunk>(
-      `WITH candidate AS (
-         SELECT ces.chunk_id, c.hyobject_id, c.workspace_id, c.text
-         FROM chunk_extraction_status ces
-         JOIN chunks c ON c.chunk_id = ces.chunk_id
-         WHERE ces.workspace_id = $1
-           AND ces.status IN ('pending','failed')
-           AND ces.attempts < $2
-         ORDER BY ces.updated_at ASC
-         LIMIT $3
-         FOR UPDATE OF ces SKIP LOCKED
-       )
-       UPDATE chunk_extraction_status ces
-       SET status = 'processing',
-           attempts = attempts + 1,
-           last_error = NULL,
-           metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('claimed_at', now())
-       FROM candidate
-       WHERE ces.chunk_id = candidate.chunk_id
-       RETURNING candidate.chunk_id AS "chunkId",
-                 candidate.hyobject_id AS "hyobjectId",
-                 candidate.workspace_id AS "workspaceId",
-                 candidate.text AS text`,
-      [auth.ctx.workspaceId, MAX_ATTEMPTS, BATCH_SIZE],
-    );
-    return claimed.rows;
-  });
+  return withSession(auth.ctx, (client) =>
+    claimChunkBatch(client, auth.ctx.workspaceId, {
+      batchSize: BATCH_SIZE,
+      maxAttempts: MAX_ATTEMPTS,
+      leaseMs: LEASE_MS,
+    }),
+  );
 }
 
 async function mapEntityKindIds(): Promise<Map<string, number>> {
   return withSession(auth.ctx, async (client) => {
     const res = await client.query<{ kind_id: number; name: string }>(
-      `SELECT kind_id, name FROM entity_kinds`,
+      `SELECT kind_id, name FROM entity_kinds
+        WHERE workspace_id IS NULL OR workspace_id = $1`,
+      [auth.ctx.workspaceId],
     );
     const m = new Map<string, number>();
     for (const row of res.rows) {
-      m.set(row.name.toLowerCase(), row.kind_id);
+      // Normalize like predicates + collectSchemaProposals do, so a catalog
+      // kind stored "Data_Source" matches an extracted "data source" instead of
+      // being re-proposed (and re-promoted) as a brand-new kind.
+      const n = normalizeTypeName(row.name);
+      if (n) m.set(n, row.kind_id);
     }
     return m;
   });
@@ -130,7 +122,9 @@ async function mapEntityKindIds(): Promise<Map<string, number>> {
 async function mapKnownPredicates(): Promise<Set<string>> {
   return withSession(auth.ctx, async (client) => {
     const res = await client.query<{ name: string }>(
-      `SELECT name FROM relation_types`,
+      `SELECT name FROM relation_types
+        WHERE workspace_id IS NULL OR workspace_id = $1`,
+      [auth.ctx.workspaceId],
     );
     const known = new Set<string>();
     for (const row of res.rows) {
@@ -155,17 +149,9 @@ async function extractEntities(text: string): Promise<ExtractionOutput> {
 }
 
 async function markFailed(chunkId: string, error: string): Promise<void> {
-  const nextStatus: ExtractionStatus = error.includes("attempt") ? "failed" : "pending";
-  await withSession(auth.ctx, async (client) => {
-    await client.query(
-      `UPDATE chunk_extraction_status
-       SET status = $2,
-           last_error = left($3, 2000),
-           metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('last_failed_at', now())
-       WHERE chunk_id = $1`,
-      [chunkId, nextStatus, error],
-    );
-  });
+  await withSession(auth.ctx, (client) =>
+    markChunkFailed(client, chunkId, error, { maxAttempts: MAX_ATTEMPTS }),
+  );
 }
 
 // Auto-promote threshold from workspace settings (default 0.6). Cached per run.
@@ -302,7 +288,7 @@ async function persistSuccess(
     const nameToEntityId = new Map<string, string>();
 
     for (const entity of output.entities) {
-      const catalogKindId = kindMap.get(entity.kind?.toLowerCase?.() ?? "");
+      const catalogKindId = kindMap.get(normalizeTypeName(entity.kind) ?? "");
       // Novel kinds (not in the entity_kinds catalog) are stored in the review
       // queue under the organization fallback id, but are NEVER auto-promoted:
       // the kind itself is only a pending schema proposal, and promoting the
@@ -554,6 +540,16 @@ async function runOnce(
   kindMap: Map<string, number>,
   knownPredicates: Set<string>,
 ): Promise<number> {
+  // Recover chunks stranded in 'processing' by a crashed/restarted worker (and
+  // terminally fail any past their attempt cap) before claiming fresh work —
+  // without this they are lost to an ungraceful restart.
+  await withSession(auth.ctx, (client) =>
+    reapStaleProcessing(client, auth.ctx.workspaceId, {
+      maxAttempts: MAX_ATTEMPTS,
+      leaseMs: LEASE_MS,
+    }),
+  );
+
   const batch = await claimBatch();
   if (batch.length === 0) return 0;
 

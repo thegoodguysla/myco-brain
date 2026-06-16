@@ -92,8 +92,21 @@ export async function supersedeContradictedRelations(
     return { superseded: 0, new_claim_id: null };
   }
 
-  // Active edges asserting a DIFFERENT current object for the same subject
-  // and predicate — the deterministic contradiction.
+  // Serialize concurrent contradictions of the SAME functional triple. Without
+  // this, two workers can each insert a different new object and miss the
+  // other's not-yet-committed edge, leaving TWO active objects for a functional
+  // predicate. The lock is transaction-scoped (released on commit, after this
+  // tx's supersession is durable), so the next contender sees a single active
+  // object and supersedes it.
+  await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+    `brain:contradiction:${workspaceId}:${subjectId}:${normalized}`,
+  ]);
+
+  // Active edges asserting a DIFFERENT current object for the same subject and
+  // predicate — the deterministic contradiction. The predicate is matched in
+  // its NORMALIZED form so an incoming "reports_to" contradicts a stored
+  // "reports to" (the functional gate already normalized; the lookup must too,
+  // or the supersession silently misses a cross-separator conflict).
   const conflicts = await client.query<{
     id: string;
     entity2_id: string;
@@ -105,31 +118,44 @@ export async function supersedeContradictedRelations(
        FROM entity_relations
       WHERE workspace_id = $1
         AND entity1_id = $2
-        AND predicate = $3
+        AND btrim(regexp_replace(lower(regexp_replace(predicate, '[_-]+', ' ', 'g')), '\\s+', ' ', 'g')) = $3
         AND entity2_id <> $4
         AND (valid_to IS NULL OR valid_to > now())`,
-    [workspaceId, subjectId, predicate, newObjectId]
+    [workspaceId, subjectId, normalized, newObjectId]
   );
   if (conflicts.rows.length === 0) return { superseded: 0, new_claim_id: null };
 
-  // The claims ledger records the new fact once per contradiction event.
-  const newClaim = await client.query<{ claim_id: string }>(
-    `INSERT INTO claims
-       (workspace_id, subject_kind, subject_id, attribute, value,
-        source_hyobject_id, extracted_by, confidence, state, valid_from)
-     VALUES ($1, 'entity', $2, $3, $4, $5, $6, $7, 'auto_promoted', now())
-     RETURNING claim_id`,
-    [
-      workspaceId,
-      subjectId,
-      predicate,
-      JSON.stringify({ entity_id: newObjectId }),
-      sourceHyobjectId,
-      extractedBy,
-      Math.max(0, Math.min(1, newConfidence)),
-    ]
+  // The claims ledger records the new fact. Reuse an existing ACTIVE claim for
+  // this exact fact instead of inserting a duplicate on every contradiction
+  // event (a document split across chunks fires the same contradiction
+  // repeatedly, which otherwise accretes duplicate ledger rows).
+  const existingNewClaim = await client.query<{ claim_id: string }>(
+    `SELECT claim_id FROM claims
+      WHERE workspace_id = $1 AND subject_kind = 'entity' AND subject_id = $2
+        AND attribute = $3 AND value->>'entity_id' = $4 AND superseded_by IS NULL
+      ORDER BY recorded_at DESC LIMIT 1`,
+    [workspaceId, subjectId, predicate, newObjectId]
   );
-  const newClaimId = newClaim.rows[0].claim_id;
+  let newClaimId = existingNewClaim.rows[0]?.claim_id;
+  if (!newClaimId) {
+    const newClaim = await client.query<{ claim_id: string }>(
+      `INSERT INTO claims
+         (workspace_id, subject_kind, subject_id, attribute, value,
+          source_hyobject_id, extracted_by, confidence, state, valid_from)
+       VALUES ($1, 'entity', $2, $3, $4, $5, $6, $7, 'auto_promoted', now())
+       RETURNING claim_id`,
+      [
+        workspaceId,
+        subjectId,
+        predicate,
+        JSON.stringify({ entity_id: newObjectId }),
+        sourceHyobjectId,
+        extractedBy,
+        Math.max(0, Math.min(1, newConfidence)),
+      ]
+    );
+    newClaimId = newClaim.rows[0].claim_id;
+  }
 
   let superseded = 0;
   for (const old of conflicts.rows) {

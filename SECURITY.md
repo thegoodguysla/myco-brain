@@ -68,6 +68,15 @@ Myco Brain is designed so you can keep the source of truth in your own Postgres.
 That reduces third-party exposure, but you are still responsible for:
 
 - securing database access (change the default `brain`/`brain` credentials)
+- **the default `brain` role is a Postgres superuser, which bypasses Row-Level
+  Security.** Workspace/tenant isolation — and the read-only REST endpoint's
+  isolation — only binds under a `NOSUPERUSER` role. Use the `brain_app` role
+  (shipped by the agency starter kit) for any multi-workspace or
+  network-exposed deployment; `mycobrain-doctor` warns on a superuser connection.
+- **stdio agent identity comes only from the server environment by default** —
+  a caller-supplied `workspace_id`/`agent_id`/`api_key` in tool arguments is
+  ignored, so a prompt-injected agent cannot reach another workspace. Enable
+  `BRAIN_TRUST_REQUEST_IDENTITY=1` only behind a trusted multi-tenant gateway.
 - rotating keys
 - isolating production environments
 - reviewing optional provider integrations before enabling them

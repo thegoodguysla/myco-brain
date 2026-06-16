@@ -361,17 +361,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const rawArgs = args as Record<string, unknown>;
 
-  // Resolve auth from args or env. workspace_id/agent_id overrides are only
-  // honored for service-role JWTs — for brain_* keys, identity is derived
-  // from the key alone (see auth.ts). They are deliberately absent from the
-  // advertised tool schemas so models never attempt identity overrides.
+  // By default the stdio server derives identity ONLY from its environment
+  // (BRAIN_API_KEY / BRAIN_SERVICE_ROLE_KEY) — caller-supplied api_key /
+  // workspace_id / agent_id in the tool args are IGNORED, so a malicious or
+  // prompt-injected agent cannot override identity to reach another workspace.
+  // Multi-tenant gateways that legitimately pass per-request identity opt in
+  // with BRAIN_TRUST_REQUEST_IDENTITY=1.
+  const trustRequestIdentity = process.env.BRAIN_TRUST_REQUEST_IDENTITY === "1";
   let auth: ReturnType<typeof resolveAuth>;
   try {
-    auth = resolveAuth({
-      apiKey: rawArgs.api_key as string | undefined,
-      workspaceId: rawArgs.workspace_id as string | undefined,
-      agentId: rawArgs.agent_id as string | undefined,
-    });
+    auth = resolveAuth(
+      trustRequestIdentity
+        ? {
+            apiKey: rawArgs.api_key as string | undefined,
+            workspaceId: rawArgs.workspace_id as string | undefined,
+            agentId: rawArgs.agent_id as string | undefined,
+          }
+        : {}
+    );
   } catch (err) {
     return errorResponse(`Auth error: ${(err as Error).message}`);
   }

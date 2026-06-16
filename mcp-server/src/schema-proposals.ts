@@ -126,20 +126,20 @@ export async function persistSchemaProposals(
 ): Promise<number> {
   let created = 0;
   for (const c of candidates) {
-    const res = await client.query<{ inserted: boolean }>(
+    // Upsert the proposal. seen_count is NOT incremented here — it is derived
+    // from the distinct-source set below (schema_proposal_sources), so two
+    // documents alternating can no longer inflate it past the real source count.
+    const res = await client.query<{ id: string; inserted: boolean }>(
       `INSERT INTO schema_proposals
          (workspace_id, proposal_type, name, description, source_hyobject_id,
           extracted_by, confidence, state)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
        ON CONFLICT (workspace_id, proposal_type, name) DO UPDATE SET
-         seen_count = schema_proposals.seen_count
-           + CASE WHEN schema_proposals.source_hyobject_id IS DISTINCT FROM EXCLUDED.source_hyobject_id
-                  THEN 1 ELSE 0 END,
          confidence = GREATEST(schema_proposals.confidence, EXCLUDED.confidence),
          source_hyobject_id = COALESCE(EXCLUDED.source_hyobject_id, schema_proposals.source_hyobject_id),
          last_seen_at = now()
        WHERE schema_proposals.state = 'pending'
-       RETURNING (xmax = 0) AS inserted`,
+       RETURNING id, (xmax = 0) AS inserted`,
       [
         workspaceId,
         c.proposal_type,
@@ -152,7 +152,29 @@ export async function persistSchemaProposals(
         c.confidence,
       ]
     );
-    if (res.rows[0]?.inserted) created++;
+    const row = res.rows[0];
+    // No row → the conflicting proposal is already reviewed (not pending); leave it.
+    if (!row) continue;
+    if (row.inserted) created++;
+
+    // Record this sighting's distinct source, then recompute seen_count from the
+    // real set of distinct documents (the corroboration signal auto-promotion
+    // reads). Repeat sightings from the same document are a no-op.
+    if (sourceHyobjectId) {
+      await client.query(
+        `INSERT INTO schema_proposal_sources (proposal_id, source_hyobject_id)
+         VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [row.id, sourceHyobjectId]
+      );
+    }
+    await client.query(
+      `UPDATE schema_proposals
+          SET seen_count = GREATEST(1, (
+            SELECT count(*) FROM schema_proposal_sources WHERE proposal_id = $1
+          ))
+        WHERE id = $1`,
+      [row.id]
+    );
   }
   return created;
 }

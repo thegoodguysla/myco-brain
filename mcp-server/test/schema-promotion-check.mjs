@@ -134,6 +134,25 @@ if (p?.state === "auto_promoted" && p.applied_id !== null && kindRow && p.applie
   fail(`expected auto_promoted with applied_id, got ${JSON.stringify(p)} / kind=${JSON.stringify(kindRow)}`);
 }
 
+// ── 2b. F3: the promoted kind is WORKSPACE-SCOPED, not global ─────────────
+// Auto-promotion used to write the name into the GLOBAL catalog (every other
+// tenant could read it). It must now carry workspace_id and be invisible to
+// any other workspace's canonical+own view.
+const scopeRow = (await db.query(
+  `SELECT workspace_id FROM entity_kinds WHERE lower(name) = 'concept'`
+)).rows[0];
+const OTHER_WS = "00000000-0000-0000-0000-0000000000ff";
+const visibleToOther = Number((await db.query(
+  `SELECT count(*)::int AS n FROM entity_kinds
+    WHERE lower(name) = 'concept' AND (workspace_id IS NULL OR workspace_id = $1)`,
+  [OTHER_WS]
+)).rows[0].n);
+if (scopeRow?.workspace_id === WS && visibleToOther === 0) {
+  ok("F3: promoted 'concept' is workspace-scoped (workspace_id set, invisible to other workspaces)");
+} else {
+  fail(`F3 isolation: expected workspace_id=${WS} + invisible to others, got scope=${JSON.stringify(scopeRow)} visibleToOther=${visibleToOther}`);
+}
+
 // ── 3. The promoted kind is USABLE by the next extraction ─────────────────
 // Confidence floor: fake emits 0.55; lower the workspace auto-promote bar so
 // the entity promotion path runs (restored in cleanup).

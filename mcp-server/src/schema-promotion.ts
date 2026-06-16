@@ -95,25 +95,50 @@ export async function autoPromoteSchemaProposals(
 
   const promoted: PromotedType[] = [];
   for (const p of pending.rows) {
-    // Id-safe catalog insert: skip if a same-named (normalization-tolerant)
-    // catalog row already exists, otherwise allocate past the current max.
     const table = p.proposal_type === "entity_kind" ? "entity_kinds" : "relation_types";
     const idCol = p.proposal_type === "entity_kind" ? "kind_id" : "relation_type_id";
+
+    // Reuse an existing catalog row — either the global canonical type or one
+    // this workspace already promoted (normalization-tolerant) — so a name that
+    // is already a real type never duplicates. Crucially this is scoped to
+    // (canonical OR this workspace): a type another workspace promoted is
+    // invisible here, so promotion never leaks one tenant's vocabulary.
     const existing = await client.query<{ id: number }>(
       `SELECT ${idCol} AS id FROM ${table}
-        WHERE lower(regexp_replace(name, '[_-]+', ' ', 'g')) = $1 LIMIT 1`,
-      [p.name]
+        WHERE lower(regexp_replace(name, '[_-]+', ' ', 'g')) = $1
+          AND (workspace_id IS NULL OR workspace_id = $2)
+        LIMIT 1`,
+      [p.name, workspaceId]
     );
     let appliedId = existing.rows[0]?.id;
+
     if (appliedId === undefined) {
+      // New WORKSPACE-SCOPED type: the id comes from the catalog sequence (no
+      // max(id)+1 race) and ON CONFLICT settles a concurrent same-name insert
+      // from another worker without erroring out the whole promotion pass.
       const ins = await client.query<{ id: number }>(
-        `INSERT INTO ${table} (${idCol}, name)
-         VALUES ((SELECT coalesce(max(${idCol}), 0) + 1 FROM ${table}), $1)
+        `INSERT INTO ${table} (name, workspace_id)
+         VALUES ($1, $2)
+         ON CONFLICT (workspace_id, name) WHERE workspace_id IS NOT NULL
+         DO NOTHING
          RETURNING ${idCol} AS id`,
-        [p.name]
+        [p.name, workspaceId]
       );
-      appliedId = ins.rows[0].id;
+      appliedId = ins.rows[0]?.id;
+      if (appliedId === undefined) {
+        // Lost the race — read the row the other worker just inserted.
+        const raced = await client.query<{ id: number }>(
+          `SELECT ${idCol} AS id FROM ${table}
+            WHERE name = $1 AND workspace_id = $2 LIMIT 1`,
+          [p.name, workspaceId]
+        );
+        appliedId = raced.rows[0]?.id;
+      }
     }
+
+    // Couldn't resolve an id (e.g. a concurrent delete) — leave the proposal
+    // pending rather than mark it promoted with a null applied_id.
+    if (appliedId === undefined) continue;
 
     await client.query(
       `UPDATE schema_proposals

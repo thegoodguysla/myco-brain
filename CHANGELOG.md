@@ -5,6 +5,64 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.4] — 2026-06-16
+
+A reliability, security, and docs release. **No tool-contract changes** — the
+`brain_*` MCP tool inputs and outputs are unchanged. **Includes two database
+migrations** (`052`, `053`); apply on upgrade. (The `1.2.3` release was a docs-only
+benchmark correction; this release ships the prelaunch engine hardening that landed
+afterward.)
+
+### Fixed
+- **Extraction-worker durability.** A worker that crashed or restarted mid-chunk
+  left that chunk stranded in `processing` forever, and a retry-exhausted chunk was
+  mislabeled `pending` instead of `failed`. The worker now reclaims stale
+  `processing` chunks once their lease expires and marks retry-exhausted chunks
+  terminally `failed`. *Proof: `npm run test:reliability`.*
+- **Contradiction / supersession robustness.** Concurrent contradictions of the
+  same functional fact are serialized (no two active objects can result), predicate
+  matching is separator-insensitive (`reports_to` ≡ `reports to`), and the claims
+  ledger no longer duplicates on re-fired contradictions. *Proof: `npm run test:contradiction`.*
+- **Schema-proposal corroboration counts distinct documents.** `seen_count` is
+  derived from the true distinct-source set, so two documents alternating can no
+  longer reach the auto-promote gate; `brain_why` source counts are per fact, not
+  per edge row. *Proof: `npm run test:proposal-sources`.*
+
+### Changed
+- **Workspace-scoped dynamic type catalogs.** Under `BRAIN_SCHEMA_AUTO_PROMOTE=1`, a
+  workspace's auto-promoted entity-kind / relation-type names were written into the
+  global catalog (visible to other workspaces). Promoted types are now scoped to
+  their workspace; the canonical seed stays global. *Proof: `npm run test:schema-promotion`.*
+
+### Security
+- **`form-data` advisory (CRLF injection).** Resolved the transitive `form-data`
+  dependency pulled via `@anthropic-ai/sdk`; `npm audit` reports 0 vulnerabilities.
+- **stdio auth hardened (defense-in-depth).** The stdio MCP server now derives
+  agent/workspace identity from the environment and ignores caller-supplied
+  `api_key` / `workspace_id` / `agent_id` by default — set
+  `BRAIN_TRUST_REQUEST_IDENTITY=1` to opt back in for a real multi-tenant gateway —
+  and a service-role JWT must now **equal** `BRAIN_SERVICE_ROLE_KEY` rather than
+  merely look like a JWT. Closes a prompt-injection path to another workspace in a
+  multi-tenant deployment; no change for single-tenant self-host (identity already
+  came from env). *Proof: `auth.test.ts`.*
+
+### Docs
+- README / SECURITY: honest RLS/superuser disclosure (the default `brain` role is a
+  Postgres superuser that bypasses RLS — multi-tenant isolation binds only under the
+  least-privilege `brain_app` role), edge survival cited as **~80% (11–12 of 14,
+  ≥75% gate)** rather than a bare 79%, and a reframed comparison table. Documented
+  the `brain_search` `reranker` argument. The LongMemEval headline (73.6% oracle QA)
+  is now backed by committed n=500 result files so it reproduces from a clone.
+- Added a consolidated **environment-variable reference** to the README and
+  documented the identity vars `BRAIN_TRUST_REQUEST_IDENTITY`, `BRAIN_AGENT_ID`, and
+  `BRAIN_SERVICE_ROLE_KEY` (with a matching `.env.example`); corrected the
+  api-reference note that per-call `workspace_id`/`api_key` are honored on stdio
+  (they are ignored by default post stdio-auth hardening).
+
+### Migrations
+- `20260616000052_workspace_scoped_catalogs.sql`
+- `20260616000053_schema_proposal_distinct_sources.sql`
+
 ## [1.2.3] — 2026-06-16
 
 A documentation-accuracy release. **No code or tool-contract changes** — purely a

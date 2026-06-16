@@ -6,12 +6,16 @@ what it returns.
 
 ## Common fields
 
-Every tool accepts these optional fields (normally supplied by the server's
-environment, not per call):
+Every tool accepts these optional fields, but on the **stdio** server they are
+**ignored by default** — identity comes only from the server's environment (and,
+for `brain_` keys, the key itself), so a prompt-injected agent can't pass its own
+`workspace_id` to reach another workspace. Set `BRAIN_TRUST_REQUEST_IDENTITY=1`
+(multi-tenant gateways only) to honor them per call. The networked REST server
+only ever accepts `brain_` keys.
 
-- `workspace_id` (string) — workspace UUID; required only for service-role auth.
-- `agent_id` (string) — overrides the agent ID derived from the API key.
-- `api_key` (string) — overrides the `BRAIN_API_KEY` from the environment.
+- `workspace_id` (string) — workspace UUID; honored only for service-role auth or under `BRAIN_TRUST_REQUEST_IDENTITY=1`.
+- `agent_id` (string) — overrides the agent ID derived from the API key (same condition).
+- `api_key` (string) — overrides the `BRAIN_API_KEY` from the environment (same condition).
 
 All write tools deduplicate and record provenance automatically. Tool contracts
 are stable within a major version (see [CHANGELOG](../CHANGELOG.md)).
@@ -47,8 +51,9 @@ Hybrid search (vector + full-text) with structured filters.
 - `filters` (object) — by `type_ids`, `people_ids`, `entity_ids`, `created_after`/`created_before`.
 - `limit`, `offset` (number); `sort` (string: `score` | `date_desc` | `date_asc`).
 - `embedding` (number[]) — optional pre-computed query embedding.
+- `reranker` (string: `none` | `cohere` | `recency`, default `none`) — optional post-retrieval reordering. `recency` is **keyless and deterministic** (`final = 0.7·relevance + 0.3·recency_norm`) with no API key or network call; `cohere` uses the Cohere API when `COHERE_API_KEY` is set.
 
-**Returns:** `{ results: [{ chunk_id, hyobject_id, hyobject_name, text, score, … }], total_estimated, retrieval_metadata }`. Works keyless (BM25); uses vectors when an embedding/`BRAIN_OPENAI_API_KEY` is available.
+**Returns:** `{ results: [{ chunk_id, hyobject_id, hyobject_name, text, score, … }], total_estimated, retrieval_metadata }`. Works keyless (BM25); uses vectors when an embedding/`BRAIN_OPENAI_API_KEY` is available. The `recency` reranker lifts recall@5 on the full 500-question LongMemEval `longmemeval_s` set from 89.2% (default hybrid) to 91.6%.
 
 ### `brain_recall_memory`
 Recall an agent's **own** saved memories and session notes — **not** ingested
