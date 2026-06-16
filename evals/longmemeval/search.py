@@ -259,6 +259,11 @@ async def temporal_search(
     relevance score and recency (date_desc), simulating temporal boost.
 
     Formula: temporal_score = 0.7 * relevance + 0.3 * recency_rank_norm
+
+    This mirrors the production RecencyReranker (mcp-server/src/reranker.ts,
+    strategy="recency") — identical formula — so the "temporal" row of this
+    benchmark reflects that shipped, keyless feature: brain_search with
+    reranker="recency".
     """
     hits = await hybrid_search(conn, query, embedding, limit * 2, workspace_id)
     if not hits:

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   PassThroughReranker,
   CohereReranker,
+  RecencyReranker,
   createReranker,
   type RerankCandidate,
 } from "./reranker.js";
@@ -154,5 +155,39 @@ describe("CohereReranker", () => {
     const result = await r.rerank("q", [], 10);
     expect(result).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("RecencyReranker", () => {
+  // n=3, formula: 0.7*score + 0.3*(1 - rank/n), rank 0 = most recent.
+  const C: RerankCandidate[] = [
+    { id: "old_relevant", text: "x", score: 0.9, createdAt: "2026-01-01T00:00:00Z" },
+    { id: "mid", text: "x", score: 0.7, createdAt: "2026-03-01T00:00:00Z" },
+    { id: "new_weak", text: "x", score: 0.5, createdAt: "2026-06-01T00:00:00Z" },
+  ];
+
+  it("blends relevance with recency (high relevance still wins; fresh-but-weak drops)", async () => {
+    const r = new RecencyReranker();
+    const out = await r.rerank("q", C, 3);
+    // old_relevant: .7*.9 + .3*.333 = .730 ; mid: .7*.7 + .3*.667 = .690 ;
+    // new_weak: .7*.5 + .3*1.0 = .650
+    expect(out.map((c) => c.id)).toEqual(["old_relevant", "mid", "new_weak"]);
+  });
+
+  it("a fresh item with competitive relevance is promoted over a slightly-better stale one", async () => {
+    const r = new RecencyReranker();
+    const out = await r.rerank("q", [
+      { id: "stale", text: "x", score: 0.80, createdAt: "2026-01-01T00:00:00Z" },
+      { id: "fresh", text: "x", score: 0.78, createdAt: "2026-06-01T00:00:00Z" },
+    ], 2);
+    // stale: .7*.80 + .3*0 = .560 ; fresh: .7*.78 + .3*1 = .846 → fresh first
+    expect(out[0].id).toBe("fresh");
+  });
+
+  it("respects limit and is selectable via createReranker('recency')", async () => {
+    const r = createReranker("recency");
+    expect(r).toBeInstanceOf(RecencyReranker);
+    const out = await r.rerank("q", C, 2);
+    expect(out).toHaveLength(2);
   });
 });

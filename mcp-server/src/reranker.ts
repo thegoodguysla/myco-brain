@@ -9,12 +9,13 @@
  *   - 'cohere' — Cohere Rerank v3.5 API (requires COHERE_API_KEY env var)
  */
 
-export type RerankerStrategy = "none" | "cohere";
+export type RerankerStrategy = "none" | "cohere" | "recency";
 
 export interface RerankCandidate {
   id: string; // chunk_id
   text: string;
   score: number; // upstream score (BM25 hybrid / RRF)
+  createdAt?: string; // ISO timestamp — used by the recency reranker
 }
 
 export interface Reranker {
@@ -105,6 +106,41 @@ export class CohereReranker implements Reranker {
 }
 
 /**
+ * RecencyReranker — keyless, deterministic. Blends upstream relevance with how
+ * recent each candidate is, so newer memories that are also relevant rise. This
+ * is the production form of the LongMemEval eval's "temporal" strategy:
+ *
+ *   final = 0.7 * relevance + 0.3 * recency_norm
+ *   recency_norm = 1 - (recency_rank / n)   (rank 0 = most recent)
+ *
+ * No API key, no network call. Candidates without a createdAt are treated as
+ * oldest (recency_norm contribution = 0), so the reranker degrades to relevance.
+ */
+export class RecencyReranker implements Reranker {
+  async rerank(
+    _query: string,
+    candidates: RerankCandidate[],
+    limit: number
+  ): Promise<RerankCandidate[]> {
+    if (candidates.length === 0) return [];
+    const n = candidates.length;
+    const ts = (c: RerankCandidate) =>
+      c.createdAt ? new Date(c.createdAt).getTime() : 0;
+    const byRecency = [...candidates].sort((a, b) => ts(b) - ts(a));
+    const recencyRank = new Map<string, number>(
+      byRecency.map((c, i) => [c.id, i])
+    );
+    return candidates
+      .map((c) => {
+        const recencyNorm = 1 - (recencyRank.get(c.id) ?? n) / n;
+        return { ...c, score: 0.7 * c.score + 0.3 * recencyNorm };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  }
+}
+
+/**
  * Create a Reranker from a strategy name.
  * Falls back to PassThroughReranker on unknown strategy.
  */
@@ -112,6 +148,8 @@ export function createReranker(strategy: RerankerStrategy): Reranker {
   switch (strategy) {
     case "cohere":
       return new CohereReranker();
+    case "recency":
+      return new RecencyReranker();
     case "none":
     default:
       return new PassThroughReranker();

@@ -12,6 +12,7 @@ Keep the interface synchronous for simplicity; the harness batches calls.
 from __future__ import annotations
 
 import os
+import time
 from typing import Protocol
 
 import numpy as np
@@ -45,26 +46,46 @@ class OpenAIEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        # Sanitize: OpenAI returns a 400 (BadRequestError) if ANY input in the
+        # batch is empty/whitespace or exceeds the 8192-token cap — which then
+        # zero-vectors the whole batch and silently corrupts the run. Replace
+        # empties with a single space and hard-truncate by chars (~4 chars/token,
+        # so 28000 chars stays safely under the cap).
+        texts = [((t if t and t.strip() else " ")[:28000]) for t in texts]
         # OpenAI batch limit is 2048 inputs
         results: list[list[float]] = []
         batch_size = 256
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            try:
-                resp = self._client.embeddings.create(
-                    model=self.MODEL,
-                    input=batch,
-                    dimensions=BRAIN_EMBED_DIM,
-                )
-                results.extend([d.embedding for d in resp.data])
-            except Exception as exc:
-                if not self._warned_fallback:
-                    print(
-                        f"[embed] OpenAI embed call failed ({type(exc).__name__}); "
-                        "falling back to zero vectors for this run."
+            for attempt in range(6):
+                try:
+                    resp = self._client.embeddings.create(
+                        model=self.MODEL,
+                        input=batch,
+                        dimensions=BRAIN_EMBED_DIM,
                     )
-                    self._warned_fallback = True
-                results.extend([[0.0] * BRAIN_EMBED_DIM for _ in batch])
+                    results.extend([d.embedding for d in resp.data])
+                    break
+                except Exception as exc:
+                    name = type(exc).__name__
+                    transient = any(
+                        s in name
+                        for s in ("RateLimit", "Timeout", "APIConnection", "InternalServer")
+                    )
+                    if transient and attempt < 5:
+                        time.sleep(2 ** attempt)  # 1,2,4,8,16s backoff
+                        continue
+                    # Last resort: a persistent failure. Zero-fill so the run
+                    # continues, but warn loudly — these rows are NOT valid and
+                    # invalidate the run's retrieval numbers.
+                    if not self._warned_fallback:
+                        print(
+                            f"[embed] OpenAI embed FAILED after retries ({name}); "
+                            "zero-vectoring this batch — results are NOT valid."
+                        )
+                        self._warned_fallback = True
+                    results.extend([[0.0] * BRAIN_EMBED_DIM for _ in batch])
+                    break
         return results
 
 

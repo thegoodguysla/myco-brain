@@ -5,6 +5,27 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.2] — 2026-06-16
+
+A retrieval-quality release. No tool-contract changes (the reranker is an
+optional, additive `brain_search` argument).
+
+### Added
+- **Keyless recency reranker.** `brain_search(reranker: 'recency')` reorders
+  results by `final = 0.7·relevance + 0.3·recency_norm` — deterministic, no API
+  key, no network call. Lifts recall@5 from 86% to ~92% on the LongMemEval
+  `longmemeval_s` subset (the recency reranker scores ~92% recall@5 in the eval
+  harness, which mirrors the production retrieval path and runs the identical
+  formula). 15/15 reranker tests pass; reproduce with
+  `python -m evals.longmemeval.run --subset longmemeval_s --no-qa` (compare the
+  `hybrid` and `temporal` rows).
+
+### Fixed
+- **Eval robustness.** Embedder inputs are sanitized so a single bad batch can
+  no longer silently skew benchmark results.
+- **README accuracy.** The relation edge-survival figure is corrected to
+  `0% → 79%` (86% is the directed-extraction accuracy, not edge survival).
+
 ## [1.2.1] — 2026-06-13
 
 A reliability, security, and onboarding release. No tool-contract changes.

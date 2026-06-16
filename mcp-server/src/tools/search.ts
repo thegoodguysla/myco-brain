@@ -59,10 +59,11 @@ export const SearchInput = z.object({
   offset: z.number().int().min(0).default(0),
   sort: z.enum(["score", "date_desc", "date_asc"]).default("score"),
   reranker: z
-    .enum(["none", "cohere"])
+    .enum(["none", "cohere", "recency"])
     .default("none")
     .describe(
       "Post-retrieval reranker. 'none' preserves BM25 hybrid scores. " +
+        "'recency' blends relevance with recency (keyless, no API). " +
         "'cohere' applies Cohere Rerank v3.5 (requires COHERE_API_KEY)."
     ),
 });
@@ -280,6 +281,7 @@ async function hybridSearch(
         id: c.chunk_id,
         text: c.text,
         score: c.score,
+        createdAt: c.created_at,
       }));
       const reranked = await reranker.rerank(
         input.query,

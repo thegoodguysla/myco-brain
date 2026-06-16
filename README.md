@@ -408,10 +408,10 @@ reads your ingested documents and:
 - **collapses duplicates** so "Priya" and "Priya Raman" become one node;
 - connects them with **directed relationships** — *Mara Quinn —works for→
   Northwind Coffee*, never the reverse (the shipped prompt is
-  direction-aware: measured **86% directed accuracy** with `llama3.2:3b`, up
-  from 79% — and relation endpoints the model forgets to list are recovered
-  automatically, lifting graph edge survival from **0% to 86%** on the gold
-  fixture; *proof: `npm run test:direction`*);
+  direction-aware: measured **86% directed accuracy** with `llama3.2:3b` — and
+  relation endpoints the model forgets to list are recovered automatically,
+  lifting graph edge survival from **0% to 79%** on the gold fixture; *proof:
+  `npm run test:direction`*);
 - and **proposes new types** it observes, so the schema grows with your domain.
 
 You choose which model does the extraction. **Nothing leaves your machine with
