@@ -328,10 +328,20 @@ set `BRAIN_OPENAI_API_KEY`. For the **knowledge graph**, use
 [Ollama locally](#build-the-knowledge-graph--locally-no-api-keys) (no key) or
 `BRAIN_ANTHROPIC_API_KEY`.
 
-Confirm it's healthy in one command (and see which optional features are on):
+Confirm it's healthy in one command. `mycobrain-doctor` doesn't just check that
+env vars are set — for the local Ollama path it **live-verifies** the setup (pings
+Ollama, confirms the embed/extraction models are pulled, and runs a real embed +
+generation), then checks the extraction backlog and review queue. It exits
+non-zero only on a real failure (a red line), so green means it works:
 
 ```bash
 npx -y -p @mycobrain/mcp-server mycobrain-doctor
+```
+
+Add `--fix` to have it offer to pull any missing Ollama models for you:
+
+```bash
+npx -y -p @mycobrain/mcp-server mycobrain-doctor --fix
 ```
 
 ### Connect your client
@@ -738,6 +748,20 @@ the old). ChatGPT's branched conversations import the ACTIVE branch (the
 transcript you actually kept, not rejected regenerations), and `brain_why`
 traces every imported fact back to its export file.
 *Proof: `npm run test:export-import`.*
+
+**Hands-free — watch your Downloads.** Request your export, then let Myco import
+it the moment it lands, with no path to copy and nothing leaving your machine:
+
+```bash
+# Poll ~/Downloads and auto-import a ChatGPT/Claude export the second it arrives (Ctrl-C to stop)
+mycobrain-ingest --watch-downloads
+
+# Already downloaded it? Import whatever export is there, then exit
+mycobrain-ingest --watch-downloads --once
+```
+
+Opt-in and deduplicated like any other import; point it at a different folder
+with `BRAIN_WATCH_DIR` (needs `unzip` on your PATH).
 
 ## Cloud Waitlist
 
