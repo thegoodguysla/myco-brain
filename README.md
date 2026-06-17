@@ -71,6 +71,7 @@ Quick links:
 [The trust engine](#memory-that-gets-more-trustworthy-compounding-confidence) ·
 [Benchmark — run it yourself](#benchmark--run-it-yourself) ·
 [Run every proof](#every-claim-has-a-check) ·
+[Who it's for](#who-its-for) ·
 [Environment variables](#environment-variables) ·
 [Architecture](#architecture) ·
 [Roadmap](./ROADMAP.md) ·
@@ -477,8 +478,7 @@ reads your ingested documents and:
   direction-aware: measured **86% directed accuracy** (12/14) with `llama3.2:3b`
   — and relation endpoints the model forgets to list are recovered
   automatically, lifting graph edge survival from 0% to **~80%** (11–12 of 14 on
-  the gold fixture — 79–86% depending on the run, gated at ≥75%); *proof:
-  `npm run test:direction`*);
+  the gold fixture, gated at ≥75%); *proof: `npm run test:direction`*);
 - and **proposes new types** it observes, so the schema grows with your domain.
 
 You choose which model does the extraction. **Nothing leaves your machine with
@@ -552,7 +552,9 @@ that are hard for us — reported, not hidden), and cheaper sample commands:
 ## Every claim has a check
 
 Nothing on this page asks for your trust — each capability names the runnable
-proof that gates it in development:
+proof that gates it in development. (Run the `npm run` and `node test/` checks
+from `mcp-server/` after `npm install`; `node examples/` and `evals/` paths are
+relative to the repo root.)
 
 | Claim | Check |
 |---|---|
@@ -569,6 +571,18 @@ proof that gates it in development:
 | Reviewing a proposal actually promotes/rejects it | `npm run test:review` |
 | Read-only REST API: auth, read-only, DoS-capped | `npm run test:rest` |
 | The benchmark number | `evals/longmemeval/` (full harness in-repo) |
+
+## Who it's for
+
+Myco is the memory layer for any team whose AI agents need to remember, with
+receipts. Each page below reframes it for your audience and walks the same use
+cases across industries (FinTech, Healthcare, Legal, Accounting, Insurance,
+SaaS, customer support, e-commerce).
+
+- **[Developers](https://mycobrain.dev/for/builders)** building agents for production: one MCP server, a deterministic write path, and provenance you own.
+- **[Vibecoders](https://mycobrain.dev/for/vibecoders)** shipping fast: persistent memory in one line, keyless and free, with no infra to build.
+- **[Teams](https://mycobrain.dev/for/teams)** putting AI in a product: customer memory, isolated per tenant, on Postgres you own.
+- **[Agencies](https://mycobrain.dev/for/agencies)**: every client in an isolated, auditable workspace.
 
 ## Architecture
 
@@ -726,6 +740,8 @@ That page is the canonical waitlist entrypoint. This README intentionally does n
 
 - [Quickstart](./docs/quickstart.md)
 - [npm package](https://www.npmjs.com/package/@mycobrain/mcp-server)
+- [Changelog](./CHANGELOG.md)
+- [Audience + industry use cases](https://mycobrain.dev/for/builders)
 - [Issue tracker](https://github.com/thegoodguysla/myco-brain/issues)
 - [Cloud waitlist](https://mycobrain.dev)
 
