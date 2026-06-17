@@ -52,7 +52,15 @@ services:
       BRAIN_OPENAI_API_KEY: ${BRAIN_OPENAI_API_KEY:-}
       BRAIN_ANTHROPIC_API_KEY: ${BRAIN_ANTHROPIC_API_KEY:-}
       BRAIN_COHERE_API_KEY: ${BRAIN_COHERE_API_KEY:-}
+      # Vector embeddings for semantic search (query-time). Empty = BM25-only.
+      # `./quickstart.sh` or the with-ollama profile set these to the bundled Ollama.
+      BRAIN_EMBED_PROVIDER: ${BRAIN_EMBED_PROVIDER:-}
+      BRAIN_OLLAMA_BASE_URL: ${BRAIN_OLLAMA_BASE_URL:-}
+      BRAIN_OLLAMA_EMBED_MODEL: ${BRAIN_OLLAMA_EMBED_MODEL:-nomic-embed-text}
       BRAIN_HEALTH_PORT: "8080"
+    # Lets the server reach an Ollama running on the host (host-install option).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8080:8080"
     stdin_open: true
@@ -91,5 +99,38 @@ services:
       postgres:
         condition: service_healthy
 
+  # ── Optional: local keyless semantic search + graph extraction (opt-in) ──────
+  # Enabled by `./quickstart.sh` (guided) or `docker compose --profile with-ollama up -d`.
+  # Runs Ollama IN DOCKER — no host install, Docker is the only prerequisite. The
+  # default `docker compose up` does NOT start these: the core stays light + BM25-only.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: myco_ollama
+    profiles: ["with-ollama"]
+    restart: unless-stopped
+    volumes:
+      - myco_ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # One-shot: pull the embedding + extraction models into the ollama volume, then exit.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: myco_ollama_init
+    profiles: ["with-ollama"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "ollama pull ${BRAIN_OLLAMA_EMBED_MODEL:-nomic-embed-text} && ollama pull ${BRAIN_OLLAMA_MODEL:-llama3.2:3b}"
+    restart: "no"
+
 volumes:
   myco_postgres_data:
+  myco_ollama_data:

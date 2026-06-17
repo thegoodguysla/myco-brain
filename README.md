@@ -9,7 +9,7 @@
 
 [![CI](https://github.com/thegoodguysla/myco-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/thegoodguysla/myco-brain/actions)
 [![npm](https://img.shields.io/npm/v/@mycobrain/mcp-server)](https://www.npmjs.com/package/@mycobrain/mcp-server)
-[![LongMemEval](https://img.shields.io/badge/LongMemEval_oracle-73.6%25_·_100%25_evidence_recall-blue)](./evals/longmemeval/README.md)
+[![LongMemEval](https://img.shields.io/badge/LongMemEval_oracle-73.6%25_QA-blue)](./evals/longmemeval/README.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
 
@@ -523,10 +523,13 @@ The point here is **reproducibility, not a single score** — the
 repo, so you run the numbers yourself; we don't assert them.
 
 **End-to-end QA** — on the complete 500-question `oracle` subset (no sampling):
-**73.6%** with **100% evidence-retrieval recall**, reader `gpt-4o-mini`, judge
-`gpt-4o`. We publish the strong-reader config side by side (gpt-4o reader:
-71.8% — yes, *lower*; at 100% evidence recall the reader isn't the bottleneck,
-which is exactly why single-headline comparisons across systems mislead).
+**73.6%**, reader `gpt-4o-mini`, judge `gpt-4o`. The `oracle` subset hands the
+reader only the gold evidence sessions, so it isolates *reasoning*, not
+retrieval — the retrieval number is `recall@5`, below. We publish the
+strong-reader config side by side (gpt-4o reader: 71.8% — yes, *lower*; with the
+evidence already in context the memory layer is saturated, so the reader isn't
+the binding constraint, which is exactly why single-headline comparisons across
+systems mislead).
 Numbers other systems quote in the ~90% range are typically a different subset,
 reader, and judge — we're not claiming a head-to-head win, we're handing you the
 harness so you can score any system on the same footing.
@@ -538,10 +541,14 @@ OPENAI_API_KEY=sk-... DATABASE_URL=postgresql://brain:brain@localhost:5432/brain
   --examples 500 --subset longmemeval_oracle --judge-model gpt-4o
 ```
 
-**Retrieval quality** — on the full 500-question `longmemeval_s` subset, evidence
-recall@5 is **89.2%** with the default hybrid retriever and **91.6%** with the
-**keyless recency reranker** (`brain_search(reranker: 'recency')` — deterministic,
-no API key, no network call); recall@10 rises 90.2% → 93.2%. Reproduce
+**Retrieval quality** — the real retrieval metric (the `oracle` subset above
+doesn't test it). On the full 500-question `longmemeval_s` subset with
+distractors, evidence recall@5 (`Ev@5`) is **89.2%** with hybrid (vector + BM25)
+retrieval and **91.6%** with the **keyless recency reranker**
+(`brain_search(reranker: 'recency')` — deterministic, no API key, no network
+call); recall@10 rises 90.2% → 93.2%. Hybrid retrieval needs an embedding
+provider (keyless via local Ollama embeddings, or OpenAI); stock BM25-only
+search scores lower. Reproduce
 (embeddings only, no judge): `python -m evals.longmemeval.run --subset
 longmemeval_s -n 500 --no-qa`.
 
