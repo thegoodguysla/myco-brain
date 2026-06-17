@@ -1,0 +1,40 @@
+# Smithery listing config for @mycobrain/mcp-server.
+#
+# Myco Brain is a SELF-HOSTED, stdio MCP server: it runs locally (via npx)
+# against YOUR own Postgres. There is no hosted/remote MCP URL — your memory
+# never leaves your infrastructure. Smithery launches it locally with the
+# command below, using the config the user provides.
+#
+# Format: https://smithery.ai/docs/build/project-config/smithery.yaml
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - databaseUrl
+      - brainApiKey
+    properties:
+      databaseUrl:
+        type: string
+        title: Database URL
+        description: >-
+          Connection string for your own Postgres 16+ (pgvector) Brain database.
+          Quickstart default: postgresql://brain:brain@localhost:5432/brain
+      brainApiKey:
+        type: string
+        title: Brain API key
+        description: >-
+          Per-agent key, format brain_<workspaceId>_<agentId>_<secret>.
+          Workspace and agent identity are derived from the key.
+  commandFunction: |
+    (config) => ({
+      command: 'npx',
+      args: ['-y', '@mycobrain/mcp-server'],
+      env: {
+        DATABASE_URL: config.databaseUrl,
+        BRAIN_API_KEY: config.brainApiKey,
+      },
+    })
+  exampleConfig:
+    databaseUrl: postgresql://brain:brain@localhost:5432/brain
+    brainApiKey: brain_00000000-0000-0000-0000-000000000001_00000000-0000-0000-0000-0000000000a1_localdev
