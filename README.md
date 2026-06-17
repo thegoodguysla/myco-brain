@@ -336,8 +336,20 @@ npx -y -p @mycobrain/mcp-server mycobrain-doctor
 
 ### Connect your client
 
-**Claude Code** — one command (uses the quickstart stack's seeded, public
-localdev credentials):
+**Fastest — one command** connects your client and runs onboarding:
+
+```bash
+npx @mycobrain/install
+```
+
+It detects your MCP client (Claude Code, Claude Desktop, Cursor, Codex, Windsurf)
+and writes the right config, or pass `--client <name>`, `--all`, or `--print`. It
+then **asks before indexing** the current repo (decline and run
+`mycobrain-onboard --tour` for a throwaway sample instead). The manual paths are
+below.
+
+**Claude Code** — by hand (uses the quickstart stack's seeded, public localdev
+credentials):
 
 ```bash
 claude mcp add myco-brain \

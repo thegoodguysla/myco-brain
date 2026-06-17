@@ -1,12 +1,13 @@
 {
   "name": "@mycobrain/mcp-server",
-  "version": "1.2.4",
+  "version": "1.2.6",
   "description": "Self-hosted memory layer for AI agents — MCP server backed by Postgres + pgvector + knowledge graph",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
     "mycobrain-mcp": "dist/index.js",
     "mycobrain-ingest": "dist/ingest-cli.js",
+    "mycobrain-install": "dist/install.js",
     "mycobrain-onboard": "dist/onboard.js",
     "mycobrain-doctor": "dist/doctor.js",
     "mycobrain-review": "dist/review.js",
@@ -70,7 +71,14 @@
     "test:export-import": "node test/export-import-check.mjs",
     "test:rls": "node test/rls-least-privilege-check.mjs",
     "test:import-embeddings": "node test/import-embeddings-check.mjs",
-    "test:onboard": "node test/onboard-check.mjs"
+    "test:onboard": "node test/onboard-check.mjs",
+    "test:install": "node test/install-check.mjs",
+    "test:attribution": "node test/attribution-check.mjs",
+    "test:milestones": "node test/milestones-check.mjs",
+    "test:export-detect": "node test/export-detect-check.mjs",
+    "test:doctor": "node test/doctor-check.mjs",
+    "check:contract-drift": "node eval/agent-contract/drift-guard.mjs",
+    "eval:contract": "node eval/agent-contract/run.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",

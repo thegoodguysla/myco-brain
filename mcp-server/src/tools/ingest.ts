@@ -15,6 +15,7 @@ import type pg from "pg";
 import { withSession, getPool, type SessionContext } from "../db.js";
 import { sanitize } from "../sanitize.js";
 import { embedAndStoreChunks, getEmbeddingProvider } from "../embed.js";
+import { resolveExtraction } from "../doctor-live.js";
 
 // Best-effort background embedding tasks started by ingest() (text mode). The
 // long-running MCP server lets these settle on their own; short-lived callers
@@ -74,6 +75,10 @@ export interface IngestResult {
   name: string | null;
   storage_uri: string | null;
   deduped?: boolean;
+  // Honest receipt: did this ingest feed the knowledge graph, or is it
+  // searchable-only because no extractor is configured? Lets the agent know
+  // whether the program actually built facts from the source.
+  extraction?: "graph" | "search-only";
   message: string;
 }
 
@@ -306,6 +311,13 @@ export async function ingest(
         void task.finally(() => pendingEmbeddings.delete(task));
       }
 
+      const graphBuilt = resolveExtraction().provider !== "none";
+      const extractionNote = deduped
+        ? ""
+        : graphBuilt
+          ? " Queued for knowledge-graph extraction — the program will pull entities and relations with provenance and confidence."
+          : " No knowledge-graph extractor is configured, so this is searchable but builds no fact graph. Enable a local Ollama extractor (run `mycobrain-doctor`) to extract facts.";
+
       const modeNote = deduped
         ? "Already ingested — identical content matched an existing object by content hash (deduplicated, no duplicate created)."
         : isTextMode
@@ -324,9 +336,10 @@ export async function ingest(
         // Additive: true when content-hash dedup matched an existing document
         // (callers like the bulk-import CLI report ingested vs skipped).
         deduped,
+        extraction: graphBuilt ? "graph" : "search-only",
         message: deduped
           ? "Identical content already exists — returned the existing document (content-hash dedup)."
-          : modeNote,
+          : modeNote + extractionNote,
       };
     }
   );

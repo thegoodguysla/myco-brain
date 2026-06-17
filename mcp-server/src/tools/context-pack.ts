@@ -24,6 +24,13 @@ import {
   recordRetrievalSuccess,
 } from "../retrieval-observability.js";
 import { hyobjectVisibleSql } from "../sharing.js";
+import { type AttributionHint } from "../attribution.js";
+import { computeAttribution, sessionGreeting } from "../attribution-db.js";
+
+// True once the first context_pack of this server process has run. The MCP stdio
+// process spans a client session, so "first call of the process" is a no-migration
+// proxy for "session start" — that is when we surface the greeting, once.
+let sessionGreeted = false;
 
 export const ContextPackInput = z.object({
   query: z.string().min(1).describe("Natural language query"),
@@ -82,6 +89,11 @@ export interface ContextPackResult {
   session_notes: SessionNoteResult[];
   relational_context: RelationalContextResult;
   query_meta: { full_text_used: boolean; vector_used: boolean };
+  // "Recalled from your memory" credit for the top chunk, decayed by workspace
+  // maturity (see attribution.ts). Surfaced via the agent contract, not the body.
+  attribution?: AttributionHint | null;
+  // One-line pushed-stats greeting, only on the first context_pack of a session.
+  session_greeting?: string | null;
   retrieval_metadata: {
     protocol_version: "2026-05-15";
     query_mode: "full_text" | "hybrid";
@@ -262,6 +274,17 @@ export async function contextPack(
       }))
     );
 
+      const attribution = await computeAttribution(
+        client,
+        ctx.workspaceId,
+        chunks[0] ? { hyobject_id: chunks[0].hyobject_id, name: chunks[0].hyobject_name } : undefined
+      );
+      let session_greeting: string | null = null;
+      if (!sessionGreeted) {
+        sessionGreeted = true;
+        session_greeting = await sessionGreeting(client, ctx.workspaceId);
+      }
+
       return {
         chunks,
         entities,
@@ -272,6 +295,8 @@ export async function contextPack(
           full_text_used: true,
           vector_used: !!input.embedding,
         },
+        attribution,
+        session_greeting,
         retrieval_metadata: {
           protocol_version: "2026-05-15" as const,
           query_mode: (input.embedding ? "hybrid" : "full_text") as "full_text" | "hybrid",

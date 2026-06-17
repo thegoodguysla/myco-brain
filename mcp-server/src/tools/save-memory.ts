@@ -13,6 +13,7 @@ import { sanitize } from "../sanitize.js";
 import { writeMemory, type MemoryWriteResult } from "../memory-write-wrapper.js";
 import { materializeAgentMemoryEdge } from "../materialize-evidence.js";
 import { embedAndStoreChunks } from "../embed.js";
+import { buildMilestone, type Milestone } from "../milestones.js";
 
 export const SaveMemoryInput = z.object({
   content: z.string().min(1).describe("The derived summary of the memory (slim, searchable)"),
@@ -64,6 +65,9 @@ export interface SaveMemoryResult {
   span_id: string;
   trace_id: string;
   message: string;
+  // Set when this save crossed a log-spaced milestone (10/50/100/250/+250).
+  // A celebratory toast the agent can surface; null otherwise. See milestones.ts.
+  milestone?: Milestone | null;
 }
 
 export async function saveMemory(
@@ -191,6 +195,16 @@ export async function saveMemory(
         ]
       );
 
+      // Milestone toast — only on a genuine new write, never an idempotent replay.
+      let milestone: Milestone | null = null;
+      if (writeResult.created) {
+        const c = await client.query(
+          `SELECT count(*)::int AS n FROM hyobjects WHERE workspace_id = $1 AND type_id = 80`,
+          [ctx.workspaceId]
+        );
+        milestone = buildMilestone(c.rows[0]?.n ?? 0);
+      }
+
       const createdLabel = writeResult.created ? "created" : "idempotent replay";
       return {
         hyobject_id: hyobjectId,
@@ -200,6 +214,7 @@ export async function saveMemory(
         created: writeResult.created,
         span_id: writeResult.span_id,
         trace_id: input.trace_id,
+        milestone,
         message:
           `Memory ${createdLabel}. hyobject_id=${hyobjectId}, ` +
           `note_id=${noteRes.rows[0].note_id}, event_id=${writeResult.event_id}, ` +

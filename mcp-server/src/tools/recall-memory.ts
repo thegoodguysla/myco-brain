@@ -14,6 +14,8 @@ import { withSession, type SessionContext } from "../db.js";
 import { createReranker, type RerankerStrategy } from "../reranker.js";
 import { activeEmbeddingTable } from "../embed.js";
 import { hyobjectVisibleSql } from "../sharing.js";
+import { type AttributionHint } from "../attribution.js";
+import { computeAttribution } from "../attribution-db.js";
 
 export const RecallMemoryInput = z.object({
   query: z.string().min(1).describe("Natural language query for recall"),
@@ -50,6 +52,10 @@ export interface RecallMemoryResult {
   entities: EntityHit[];
   session_notes: SessionNoteHit[];
   query_meta: { full_text_used: boolean; vector_used: boolean; agent_scoped: boolean };
+  // Structured "recalled from your memory" credit, or null when the workspace has
+  // matured past the decay threshold. Surfaced via the agent contract, never the
+  // result body. See attribution.ts.
+  attribution?: AttributionHint | null;
 }
 
 interface MemoryChunk {
@@ -105,8 +111,11 @@ export async function recallMemory(
       input.query
     );
 
+    const returned = finalChunks.slice(0, input.limit);
+    const attribution = await computeAttribution(client, ctx.workspaceId, returned[0]);
+
     return {
-      memories: finalChunks.slice(0, input.limit),
+      memories: returned,
       entities,
       session_notes: sessionNotes,
       query_meta: {
@@ -114,9 +123,11 @@ export async function recallMemory(
         vector_used: !!input.embedding,
         agent_scoped: !!input.agent_id,
       },
+      attribution,
     };
   });
 }
+
 
 async function fetchMemoryChunks(
   client: pg.PoolClient,

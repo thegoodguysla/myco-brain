@@ -19,12 +19,15 @@
  * DATABASE_URL / BRAIN_API_KEY / BRAIN_WORKSPACE_ID override.
  */
 import "dotenv/config";
+import { execFileSync } from "node:child_process";
+import { createInterface } from "node:readline";
 import type pg from "pg";
 import { canonicalizeAgentContext } from "./agent-identity.js";
 import { resolveAuth } from "./auth.js";
 import { ingest, IngestInput } from "./tools/ingest.js";
 import { search, SearchInput } from "./tools/search.js";
 import { why, WhyInput } from "./tools/why.js";
+import { ingestDirectory } from "./ingest-cli.lib.js";
 import { withSession, closePool, type SessionContext } from "./db.js";
 
 const LOCALDEV_DATABASE_URL = "postgresql://brain:brain@localhost:5432/brain";
@@ -279,6 +282,135 @@ async function purgeHyobjectIds(client: pg.PoolClient, ids: string[]): Promise<v
   for (const sql of stmts) await runTolerant(client, sql, [ids]);
 }
 
+// Y/n prompt, default YES on bare Enter. Returns false when we cannot prompt
+// (non-interactive) so onboarding never indexes without an explicit, present user.
+async function promptYesNo(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise<string>((resolve) => rl.question(`${question}[Y/n] `, resolve));
+  rl.close();
+  const a = answer.trim().toLowerCase();
+  return a === "" || a === "y" || a === "yes";
+}
+
+function repoRoot(): string {
+  try {
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+    if (top) return top;
+  } catch {
+    // not a git repo — fall back to the working directory
+  }
+  return process.cwd();
+}
+
+// Content-derived demo questions: the first that returns a hit becomes the
+// scripted aha AND the question we hand the user to ask their own live agent.
+const DEMO_QUERIES = [
+  "how does authentication work",
+  "database schema and migrations",
+  "how to run and deploy this",
+  "configuration and environment variables",
+  "what this project does",
+];
+
+// ── default on an empty brain: the real-repo "it just knew" moment ───────────
+// Index the user's OWN project, then prove recall on their own code in a fresh
+// context — the fastest path to a felt aha, no export wait, no fake data.
+async function firstRun(ctx: SessionContext, forced: boolean): Promise<void> {
+  const root = repoRoot();
+  const label = root.split(/[\\/]/).filter(Boolean).pop() || "this project";
+  console.log("");
+  console.log(`  ${C.bold(`🧠 Myco Brain — give your agent a memory of ${label}`)}`);
+  console.log("");
+
+  // Opt-in: never index a dev's repo without an explicit yes. `forced` is set by
+  // --demo / --yes; otherwise we ask. If we cannot prompt (non-interactive) and
+  // it is not forced, we do NOT index — we point at the throwaway tour instead.
+  const consent = forced || (await promptYesNo(`  Index ${C.bold(label)} so your agent can recall it across sessions? `));
+  if (!consent) {
+    console.log("");
+    console.log(`  ${C.dim("Nothing indexed.")} Just exploring? Take the throwaway tour (it self-cleans):`);
+    console.log(`     ${C.green("mycobrain-onboard --tour")}`);
+    console.log(`  ${C.dim("Index when ready:")} ${C.green("mycobrain-onboard --yes")} ${C.dim("(here), or")} ${C.green("mycobrain-ingest <path>")}`);
+    console.log("");
+    return;
+  }
+  console.log(`  ${C.dim("Indexing this project so a future session can recall it…")}`);
+
+  let n = 0;
+  const res = await ingestDirectory(ctx, root, `dir:${root}`, {
+    maxFiles: 400,
+    onFile: () => {
+      n++;
+      if (n % 20 === 0) process.stdout.write(`\r  ${C.dim(`indexed ${n} files…`)}   `);
+    },
+  });
+  const more = res.capped ? C.dim(" (first 400 — run `mycobrain-ingest .` for the rest)") : "";
+  process.stdout.write(`\r  ${C.green("✓")} indexed ${C.bold(String(res.ingested))} files${more}            \n`);
+
+  if (res.ingested === 0) {
+    console.log("");
+    console.log(`  ${C.dim("No text files here. Point Myco at a repo or folder:")}`);
+    console.log(`     ${C.green("mycobrain-ingest <path>")}`);
+    console.log("");
+    return;
+  }
+
+  // Find a question that actually returns a hit (BM25 works immediately).
+  let q: string | null = null;
+  let hit: { text?: string; hyobject_id: string } | undefined;
+  for (const cand of DEMO_QUERIES) {
+    const r = await search(ctx, SearchInput.parse({ query: cand, limit: 1 }));
+    if (r.results?.[0]) {
+      q = cand;
+      hit = r.results[0];
+      break;
+    }
+  }
+  if (!hit) {
+    const r = await search(ctx, SearchInput.parse({ query: label, limit: 1 }));
+    if (r.results?.[0]) {
+      q = `what is ${label}`;
+      hit = r.results[0];
+    }
+  }
+
+  console.log("");
+  if (!hit || !q) {
+    console.log(`  ${C.dim("Indexed. Ask your agent about any file here and it will recall it.")}`);
+    console.log("");
+    return;
+  }
+
+  console.log(`  ${C.dim("Watch what your agent can now recall — without you re-explaining anything:")}`);
+  await sleep(450);
+  console.log("");
+  console.log(`  ${C.cyan("❯")} a fresh session asks:  ${C.bold(`"${q}?"`)}`);
+  await sleep(550);
+  const snippet = (hit.text || "").trim().replace(/\s+/g, " ").slice(0, 76);
+  console.log(`  ${C.green("→ recalled:")} ${C.yellow(`"${snippet}…"`)}`);
+  try {
+    const trail = await why(ctx, WhyInput.parse({ hyobject_id: hit.hyobject_id }));
+    if (trail.subject?.name) {
+      console.log(
+        `  ${C.magenta("→ where from:")} ${C.bold(trail.subject.name)} ${C.dim("· content-hashed, never guessed")}`
+      );
+    }
+  } catch {
+    // provenance is a bonus in the demo; skip quietly if unavailable
+  }
+  await sleep(300);
+  console.log(`  ${C.dim("→ that pulled a few facts, not your whole repo — near-zero context window.")}`);
+  console.log("");
+  console.log(`  ${C.bold("Now open your agent (Claude Code, Cursor, …) and ask it:")}`);
+  console.log(`     ${C.green(`${q}?`)}`);
+  console.log("");
+}
+
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL && !process.env.SUPABASE_DB_URL) {
     process.env.DATABASE_URL = LOCALDEV_DATABASE_URL;
@@ -288,13 +420,20 @@ async function main(): Promise<void> {
 
   if (arg === "--tour") {
     await tour(ctx);
+  } else if (arg === "--demo" || arg === "--first-run") {
+    await firstRun(ctx, true);
   } else if (arg === "--reset-demo") {
     await resetDemo(ctx, process.argv.includes("--yes"));
-  } else if (!arg || arg === "--help" || arg === "-h") {
+  } else if (arg === "--help" || arg === "-h") {
     await guide(ctx);
+  } else if (!arg) {
+    // Empty brain -> the real-repo aha; otherwise the getting-started guide.
+    const n = await session(ctx, "onboard", (c) => memoryCount(c, ctx.workspaceId));
+    if (n === 0) await firstRun(ctx, process.argv.includes("--yes"));
+    else await guide(ctx);
   } else {
     console.error(`Unknown option: ${arg}`);
-    console.error(`Usage: mycobrain-onboard [--tour | --reset-demo]`);
+    console.error(`Usage: mycobrain-onboard [--demo | --tour | --reset-demo]`);
     process.exit(1);
   }
 }

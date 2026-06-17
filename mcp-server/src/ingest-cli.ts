@@ -27,85 +27,90 @@ import { resolveAuth } from "./auth.js";
 import { ingest, IngestInput, flushPendingEmbeddings } from "./tools/ingest.js";
 import { closePool, type SessionContext } from "./db.js";
 import {
-  SKIP_DIRS,
-  MAX_FILE_BYTES,
-  isTextFile,
+  ingestDirectory,
   looksBinary,
   parseGitHubTarget,
+  detectExportKind,
 } from "./ingest-cli.lib.js";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 import {
   parseChatGptConversations,
   parseClaudeConversations,
 } from "./export-import.lib.js";
 
-async function* walk(dir: string): AsyncGenerator<string> {
-  let entries: import("node:fs").Dirent[];
+// walk() and ingestDirectory() moved to ingest-cli.lib.js so onboard can reuse
+// them in-process. The per-file console output now rides on onFile/onError.
+const dirLog = {
+  onFile: (rel: string) => console.log(`  + ${rel}`),
+  onError: (rel: string, msg: string) => console.error(`  ! ${rel}: ${msg}`),
+};
+
+// List the .zip files in a directory, newest first.
+async function listZips(dir: string): Promise<string[]> {
+  let names: string[];
   try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
+    names = await fs.readdir(dir);
   } catch {
-    return;
+    return [];
   }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      yield* walk(full);
-    } else if (entry.isFile()) {
-      yield full;
-    }
-  }
+  const zips = names.filter((n) => n.toLowerCase().endsWith(".zip")).map((n) => path.join(dir, n));
+  const withTime = await Promise.all(
+    zips.map(async (p) => ({ p, t: await fs.stat(p).then((s) => s.mtimeMs).catch(() => 0) }))
+  );
+  return withTime.sort((a, b) => b.t - a.t).map((x) => x.p);
 }
 
-async function ingestDirectory(
-  ctx: SessionContext,
-  root: string,
-  sourceLabel: string
-): Promise<{ ingested: number; skipped: number }> {
-  let ingested = 0;
-  let skipped = 0;
-  for await (const file of walk(root)) {
-    if (!isTextFile(file)) {
-      skipped++;
-      continue;
-    }
-    let buf: Buffer;
+// Read the entry names inside a zip (needs `unzip` on PATH).
+function zipEntries(zipPath: string): string[] {
+  return execFileSync("unzip", ["-Z1", zipPath], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 })
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Watch ~/Downloads for a ChatGPT/Claude export .zip and auto-ingest it the moment
+// it lands. Opt-in only, with a visible "watching" line. --once processes any
+// export already present and exits; default polls until interrupted.
+async function watchDownloads(ctx: SessionContext, once: boolean): Promise<void> {
+  const dir = process.env.BRAIN_WATCH_DIR || path.join(os.homedir(), "Downloads");
+  const seen = new Set<string>();
+
+  const tryIngest = async (zipPath: string): Promise<boolean> => {
+    if (seen.has(zipPath)) return false;
+    let kind: ReturnType<typeof detectExportKind>;
     try {
-      const stat = await fs.stat(file);
-      if (stat.size > MAX_FILE_BYTES || stat.size === 0) {
-        skipped++;
-        continue;
-      }
-      buf = await fs.readFile(file);
+      kind = detectExportKind(zipEntries(zipPath));
     } catch {
-      skipped++;
-      continue;
+      return false; // not a readable zip, or unzip is unavailable
     }
-    if (looksBinary(buf)) {
-      skipped++;
-      continue;
-    }
-    const text = buf.toString("utf8");
-    if (!text.trim()) {
-      skipped++;
-      continue;
-    }
-    const rel = path.relative(root, file) || path.basename(file);
-    try {
-      await ingest(ctx, {
-        mode: "text",
-        text,
-        name: rel,
-        type_id: 1,
-        tags: { source: sourceLabel, path: rel },
-      });
-      ingested++;
-      console.log(`  + ${rel}`);
-    } catch (err) {
-      skipped++;
-      console.error(`  ! ${rel}: ${(err as Error).message}`);
+    if (!kind) return false;
+    seen.add(zipPath);
+    const who = kind === "chatgpt-export" ? "ChatGPT" : "Claude";
+    console.log(`\nDetected ${who} export: ${path.basename(zipPath)} — importing…`);
+    const r = await ingestAssistantExport(ctx, kind, zipPath);
+    console.log(`Imported ${r.ingested} conversation(s), ${r.skipped} already known (deduped).`);
+    console.log(`Ask your agent: "what did I discuss with ${who} about <topic>?"`);
+    return true;
+  };
+
+  console.log(`Watching ${dir} for a ChatGPT or Claude export .zip…`);
+  let any = false;
+  for (const z of await listZips(dir)) {
+    if (await tryIngest(z)) {
+      any = true;
+      if (once) return;
     }
   }
-  return { ingested, skipped };
+  if (once) {
+    if (!any) console.log(`No export .zip found in ${dir} yet. Request your export, then re-run.`);
+    return;
+  }
+  console.log("(opt-in; nothing leaves your machine; Ctrl-C to stop)");
+  for (;;) {
+    await sleep(3000);
+    for (const z of await listZips(dir)) await tryIngest(z);
+  }
 }
 
 async function ingestGitHub(
@@ -130,7 +135,7 @@ async function ingestGitHub(
     );
   }
   try {
-    return await ingestDirectory(ctx, tmp, `github:${repoSlug}`);
+    return await ingestDirectory(ctx, tmp, `github:${repoSlug}`, dirLog);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
@@ -296,6 +301,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (target === "--watch-downloads") {
+    await watchDownloads(ctx, process.argv.includes("--once"));
+    return;
+  }
+
   const repoSlug = parseGitHubTarget(target);
   if (repoSlug) {
     result = await ingestGitHub(ctx, repoSlug);
@@ -303,7 +313,7 @@ async function main(): Promise<void> {
     const stat = await fs.stat(target).catch(() => null);
     if (!stat) throw new Error(`Path not found: ${target}`);
     if (stat.isDirectory()) {
-      result = await ingestDirectory(ctx, target, `dir:${path.resolve(target)}`);
+      result = await ingestDirectory(ctx, target, `dir:${path.resolve(target)}`, dirLog);
     } else {
       // Single file — ingest its parent-relative name.
       const buf = await fs.readFile(target);

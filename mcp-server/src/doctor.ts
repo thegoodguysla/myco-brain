@@ -1,18 +1,32 @@
 #!/usr/bin/env node
 /**
  * `mycobrain doctor` — one command that answers "is it working, and if not,
- * why?". Runs a preflight checklist over the things that actually break a
- * fresh setup: the database, the migrations, the workspace + key, and which
- * optional capabilities (semantic search, the knowledge graph) are switched
- * on. Prints a green/yellow/red checklist with the exact fix for each line.
+ * why?". It does not just check config (is an env var set?); for the local
+ * Ollama path it actually probes the server, confirms the model is pulled, and
+ * runs a real embed/generate, so a green line means it WORKS. Prints a
+ * green/yellow/red checklist with the exact fix for each line.
  *
- * Zero-config: with no env set it checks the docker-compose quickstart stack,
- * the same defaults `mycobrain-ingest` uses. Exit code is non-zero only when
- * something is actually broken (red), not for optional features being off.
+ *   mycobrain-doctor          report status
+ *   mycobrain-doctor --fix    offer to pull any missing Ollama models
+ *
+ * Zero-config: with no env set it checks the docker-compose quickstart stack.
+ * Exit code is non-zero only when something is actually broken (a red line).
  */
 import "dotenv/config";
+import { createInterface } from "node:readline";
 import pg from "pg";
 import { getEmbeddingProvider } from "./embed.js";
+import {
+  resolveOllamaBase,
+  hasModel,
+  resolveExtraction,
+  probeOllama,
+  liveEmbedOk,
+  liveGenerateOk,
+  ollamaCliPresent,
+  pullModel,
+  type OllamaProbe,
+} from "./doctor-live.js";
 
 const LOCALDEV_DATABASE_URL = "postgresql://brain:brain@localhost:5432/brain";
 const LOCALDEV_API_KEY =
@@ -31,11 +45,32 @@ const rows: { status: Status; label: string; detail: string; fix?: string }[] = 
 const add = (status: Status, label: string, detail: string, fix?: string) =>
   rows.push({ status, label, detail, fix });
 
+// Models found missing on a reachable Ollama — `--fix` offers to pull these.
+const missingModels = new Set<string>();
+// Probe Ollama at most once per base URL (semantic + graph may share it).
+let probeCache: { base: string; probe: OllamaProbe } | null = null;
+async function probeOllamaOnce(base: string): Promise<OllamaProbe> {
+  if (probeCache && probeCache.base === base) return probeCache.probe;
+  const probe = await probeOllama(base);
+  probeCache = { base, probe };
+  return probe;
+}
+
+async function promptYesNo(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ans = await new Promise<string>((res) => rl.question(`${question}[Y/n] `, res));
+  rl.close();
+  const a = ans.trim().toLowerCase();
+  return a === "" || a === "y" || a === "yes";
+}
+
 async function main(): Promise<void> {
   const usingLocaldevDb = !process.env.DATABASE_URL && !process.env.SUPABASE_DB_URL;
   const dbUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL || LOCALDEV_DATABASE_URL;
   const apiKey = process.env.BRAIN_API_KEY || LOCALDEV_API_KEY;
   const usingLocaldevKey = !process.env.BRAIN_API_KEY;
+  const wsId = apiKey.startsWith("brain_") ? apiKey.split("_")[1] : undefined;
 
   // ── 1. Database reachable ──────────────────────────────────────────────────
   const client = new pg.Client({ connectionString: dbUrl });
@@ -70,16 +105,12 @@ async function main(): Promise<void> {
     }
 
     // ── 3. Workspace + API key ───────────────────────────────────────────────
-    const parts = apiKey.startsWith("brain_") ? apiKey.split("_") : [];
-    const wsId = parts[1];
     if (!wsId) {
       add("fail", "API key", "BRAIN_API_KEY is not a brain_<workspace>_<agent>_<secret> key",
         "Set BRAIN_API_KEY (the quickstart key is in .env.example).");
     } else {
       try {
-        const ws = await client.query(
-          `SELECT status FROM workspaces WHERE workspace_id = $1`, [wsId]
-        );
+        const ws = await client.query(`SELECT status FROM workspaces WHERE workspace_id = $1`, [wsId]);
         if (ws.rowCount === 0) {
           add("fail", "Workspace", `key points at workspace ${wsId.slice(0, 8)}… which does not exist`,
             "Use a key whose workspace exists, or seed it (the quickstart seeds …0001).");
@@ -94,39 +125,89 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── 4. Semantic search (embeddings provider) ───────────────────────────────
+  // ── 4. Semantic search (embeddings) — LIVE-verified for the Ollama path ─────
   const embed = getEmbeddingProvider();
-  if (embed) {
-    add("ok", "Semantic search", `on — ${embed.name} (${embed.dimension}d)`);
-  } else {
+  if (!embed) {
     add("warn", "Semantic search", "off — full-text (BM25) search still works",
-      "For keyless semantic search: install Ollama, `ollama pull nomic-embed-text`, " +
-        "then set BRAIN_EMBED_PROVIDER=ollama. Or set BRAIN_OPENAI_API_KEY.");
+      "Keyless: install Ollama, `ollama pull nomic-embed-text`, then set " +
+        "BRAIN_EMBED_PROVIDER=ollama and BRAIN_OLLAMA_BASE_URL=http://localhost:11434. Or set BRAIN_OPENAI_API_KEY.");
+  } else if (embed.name === "ollama") {
+    const base = resolveOllamaBase();
+    const model = process.env.BRAIN_OLLAMA_EMBED_MODEL ?? "nomic-embed-text";
+    const probe = await probeOllamaOnce(base);
+    if (!probe.reachable) {
+      add("fail", "Semantic search", `configured (ollama) but Ollama is not reachable at ${base}`,
+        ollamaCliPresent()
+          ? "Start it: `ollama serve` (or `brew services start ollama`), then re-run `mycobrain-doctor`."
+          : "Install Ollama (https://ollama.com), then `ollama serve`.");
+    } else if (!hasModel(probe.models, model)) {
+      missingModels.add(model);
+      add("fail", "Semantic search", `Ollama is up but the embed model '${model}' is not pulled`,
+        `Pull it: \`ollama pull ${model}\`  — or run \`mycobrain-doctor --fix\`.`);
+    } else if (!(await liveEmbedOk(base, model))) {
+      add("fail", "Semantic search", `Ollama up and '${model}' present, but a test embedding failed`,
+        `Check Ollama: \`ollama run ${model}\`, then re-run.`);
+    } else {
+      add("ok", "Semantic search", `on — ollama ${model} (${embed.dimension}d), live-verified`);
+    }
+  } else {
+    add("ok", "Semantic search", `on — openai (${embed.dimension}d)`);
   }
 
-  // ── 5. Knowledge graph (extraction provider) ───────────────────────────────
-  const forced = (process.env.BRAIN_EXTRACTION_PROVIDER ?? "").trim().toLowerCase();
-  const hasAnthropic = !!process.env.BRAIN_ANTHROPIC_API_KEY;
-  const ollamaBase = (process.env.BRAIN_OLLAMA_BASE_URL ?? "").trim();
-  const graphProvider =
-    forced === "anthropic" || (!forced && hasAnthropic)
-      ? "anthropic"
-      : forced === "ollama" || (!forced && ollamaBase)
-        ? "ollama (local, keyless)"
-        : null;
-  if (graphProvider) {
-    add("ok", "Knowledge graph", `on — extraction via ${graphProvider}`);
+  // ── 5. Knowledge graph (extraction) — LIVE-verified for the Ollama path ─────
+  const ex = resolveExtraction();
+  if (ex.provider === "none") {
+    add("warn", "Knowledge graph",
+      "off — content is searchable, but no entity graph is built (the extractor falls back to a no-op)",
+      "Keyless local graph: install Ollama, `ollama pull llama3.2:3b`, then set " +
+        "BRAIN_OLLAMA_BASE_URL=http://localhost:11434. Or set BRAIN_ANTHROPIC_API_KEY.");
+  } else if (ex.provider === "anthropic") {
+    add("ok", "Knowledge graph", "on — extraction via anthropic");
   } else {
-    add("warn", "Knowledge graph", "off — content is searchable, but no entity graph is built",
-      "For a keyless local graph: install Ollama, `ollama pull llama3.2:3b`, " +
-        "then set BRAIN_OLLAMA_BASE_URL=http://localhost:11434. Or set BRAIN_ANTHROPIC_API_KEY.");
+    const probe = await probeOllamaOnce(ex.ollamaBase);
+    if (!probe.reachable) {
+      add("fail", "Knowledge graph", `configured (ollama) but Ollama is not reachable at ${ex.ollamaBase}`,
+        ollamaCliPresent()
+          ? "Start it: `ollama serve`, then re-run `mycobrain-doctor`."
+          : "Install Ollama (https://ollama.com), then `ollama serve`.");
+    } else if (!hasModel(probe.models, ex.model)) {
+      missingModels.add(ex.model);
+      add("fail", "Knowledge graph", `Ollama is up but the extraction model '${ex.model}' is not pulled`,
+        `Pull it: \`ollama pull ${ex.model}\`  — or run \`mycobrain-doctor --fix\`.`);
+    } else if (!(await liveGenerateOk(ex.ollamaBase, ex.model))) {
+      add("fail", "Knowledge graph", `Ollama up and '${ex.model}' present, but a test generation failed`,
+        `Check Ollama: \`ollama run ${ex.model}\`, then re-run.`);
+    } else {
+      add("ok", "Knowledge graph", `on — ollama ${ex.model}, live-verified`);
+    }
+  }
+
+  // ── 5b. Extraction backlog (is the graph actually being built?) ────────────
+  if (connected) {
+    try {
+      const r = await client.query<{ n: string }>(
+        `SELECT count(*)::int AS n FROM chunk_extraction_status WHERE workspace_id = $1 AND status = 'pending'`,
+        [wsId]
+      );
+      const pending = Number(r.rows[0]?.n ?? 0);
+      if (pending > 0 && ex.provider === "none") {
+        add("warn", "Extraction backlog",
+          `${pending} chunk(s) queued but no real extractor is configured — the graph will not build`,
+          "Enable an extractor (see Knowledge graph above); the worker then drains the backlog.");
+      } else if (pending > 50) {
+        add("warn", "Extraction backlog", `${pending} chunk(s) waiting — the extraction worker may be stopped`,
+          "Confirm the extraction-worker service is running (docker compose ps), or run `npm run worker:extract`.");
+      } else {
+        add("ok", "Extraction backlog", pending === 0 ? "clear — nothing waiting to extract" : `${pending} chunk(s) processing`);
+      }
+    } catch {
+      // chunk_extraction_status may not exist on an older schema — skip quietly.
+    }
   }
 
   // ── 6. Review backlog (the curation queue) ─────────────────────────────────
   if (connected) {
     try {
-      const parts = apiKey.startsWith("brain_") ? apiKey.split("_") : [];
-      const wsId = parts[1];
       const q = await client.query<{ pe: string; pr: string; sp: string }>(
         `SELECT
            (SELECT count(*) FROM proposed_entities WHERE workspace_id=$1 AND state='pending') AS pe,
@@ -153,23 +234,38 @@ async function main(): Promise<void> {
   if (connected) await client.end().catch(() => {});
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const mark = (s: Status) =>
-    s === "ok" ? C.green("✓") : s === "warn" ? C.yellow("!") : C.red("✗");
+  const mark = (s: Status) => (s === "ok" ? C.green("✓") : s === "warn" ? C.yellow("!") : C.red("✗"));
   console.log(`\n  ${C.bold("Myco Brain — doctor")}\n`);
   for (const r of rows) {
-    console.log(`  ${mark(r.status)} ${C.bold(r.label.padEnd(16))} ${r.detail}`);
+    console.log(`  ${mark(r.status)} ${C.bold(r.label.padEnd(18))} ${r.detail}`);
     if (r.fix && r.status !== "ok") console.log(`    ${C.dim("→ " + r.fix)}`);
   }
   const fails = rows.filter((r) => r.status === "fail").length;
   const warns = rows.filter((r) => r.status === "warn").length;
   console.log("");
   if (fails === 0 && warns === 0) {
-    console.log(`  ${C.green("All systems go.")} Connect a client and start saving memories.\n`);
+    console.log(`  ${C.green("All systems go.")} Connect a client and start feeding it sources.\n`);
   } else if (fails === 0) {
     console.log(`  ${C.green("Core is healthy.")} ${warns} optional capabilit${warns === 1 ? "y is" : "ies are"} off (see above).\n`);
   } else {
-    console.log(`  ${C.red(`${fails} blocking issue${fails === 1 ? "" : "s"}`)} — fix the ${C.red("✗")} line(s) above, then re-run \`mycobrain doctor\`.\n`);
+    console.log(`  ${C.red(`${fails} blocking issue${fails === 1 ? "" : "s"}`)} — fix the ${C.red("✗")} line(s) above, then re-run \`mycobrain-doctor\`.\n`);
   }
+
+  // ── --fix: offer to pull any missing Ollama models ─────────────────────────
+  if (process.argv.includes("--fix") && missingModels.size > 0) {
+    console.log(`  ${C.bold("Fix")} — ${missingModels.size} model(s) can be pulled now:\n`);
+    for (const model of missingModels) {
+      const yes = await promptYesNo(`  Pull ${C.bold(model)} now? `);
+      if (yes) {
+        const ok = pullModel(model);
+        console.log(ok ? `  ${C.green("✓")} pulled ${model}` : `  ${C.red("✗")} pull failed for ${model}`);
+      }
+    }
+    console.log(`\n  Re-run ${C.green("mycobrain-doctor")} to confirm everything is green.\n`);
+  } else if (missingModels.size > 0) {
+    console.log(`  ${C.dim("Tip:")} ${C.green("mycobrain-doctor --fix")} ${C.dim("pulls the missing model(s) for you.")}\n`);
+  }
+
   process.exit(fails === 0 ? 0 : 1);
 }
 

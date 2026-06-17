@@ -30,6 +30,8 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import { ATTRIBUTION_CONTRACT_CLAUSE } from "./attribution.js";
+import { RUNTIME_CONTRACT } from "./agent-instructions.js";
 import { z } from "zod";
 
 import { resolveAuth } from "./auth.js";
@@ -157,7 +159,7 @@ export const TOOLS: Tool[] = [
   {
     name: "brain_ingest",
     description:
-      "Ingest a file, URL, or raw text into the knowledge base. Creates a hyobject record and enqueues it for the ingestion worker.",
+      "The default write path. Hand the engine a source (a document, transcript, thread, or decision record) and it extracts entities and relations, attaches a source and a confidence score to each, runs contradiction-and-supersession against existing facts, and folds them into the workspace graph. This is the primary way truth enters Myco: prefer it over asserting conclusions, and feed two or three independent sources when a fact matters so confidence compounds. Requires a configured extractor (local Ollama or Anthropic) to build the graph; without one the source is still stored and fully searchable, but no entities or relations are extracted.",
     inputSchema: {
       type: "object",
       properties: {
@@ -179,7 +181,7 @@ export const TOOLS: Tool[] = [
   {
     name: "brain_propose_fact",
     description:
-      "Propose a new entity or relationship. Proposals enter the review queue and become canonical knowledge after approval.",
+      "Submit a structured claim (subject, predicate, object) when you believe something is true but have no source to ingest. It enters a gated review queue as a candidate, not canonical truth, and is promoted when a reviewer approves it or a later ingested source naming the same entity corroborates it over the auto-promote threshold (default 0.6), arriving with that source attached. Register undocumented beliefs honestly here; use brain_ingest whenever a source exists.",
     inputSchema: {
       type: "object",
       properties: {
@@ -204,7 +206,7 @@ export const TOOLS: Tool[] = [
   {
     name: "brain_annotate",
     description:
-      "Leave a breadcrumb note in the agent session (observation, decision, question, or fact). Notes persist across heartbeats and can be retrieved via brain_context_pack with include_session_notes=true.",
+      "Attach a lightweight note to the current session for continuity (observation, decision, question, or fact). Not extracted, not adjudicated, not durable workspace truth; retrievable via brain_context_pack with include_session_notes=true. Reach for brain_ingest when the thing you learned should outlive the session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -226,7 +228,7 @@ export const TOOLS: Tool[] = [
   {
     name: "brain_save_memory",
     description:
-      "Save a memory chunk into the agent's sub-brain. Creates an agent-scoped document and session note in one call. Use this to record facts, decisions, or observations that should persist across sessions. The memory is immediately full-text searchable via brain_recall_memory.",
+      "Your PRIVATE scratchpad, not workspace truth. An ungated, direct write scoped to YOUR agent only: confidence is hardcoded to 1.0, nothing is extracted, no provenance is recorded, and only you can recall it (brain_recall_memory). Use it strictly for private working notes within a session, never for facts the workspace or other agents should trust or cite. If a source backs the fact, ingest the source; if it is shared truth, it does not belong here.",
     inputSchema: {
       type: "object",
       properties: {
@@ -334,12 +336,8 @@ export const TOOLS: Tool[] = [
 // MCP `instructions` field. This is what makes memory work well out of the
 // box: clients surface it to their model, so agents know WHEN to recall,
 // save, and cite without any per-project setup. Deeper policy: docs/agent-setup.md.
-const SERVER_INSTRUCTIONS = `Myco Brain is this workspace's persistent, shared memory.
-- Starting a task? Call brain_context_pack with the task topic FIRST — prior decisions, entities, and documents may already exist.
-- Learned something durable (a decision, constraint, preference, deadline)? Save it with brain_save_memory — one clear fact per call. Never save secrets or session chatter.
-- Asked "why" or "since when"? Use brain_why and cite the source instead of answering from memory alone.
-- brain_search / brain_context_pack cover ingested workspace documents; brain_recall_memory covers YOUR OWN saved memories.
-- Facts marked superseded are history, not current truth — prefer the active fact and mention the supersession if relevant.`;
+const SERVER_INSTRUCTIONS = `${RUNTIME_CONTRACT}
+${ATTRIBUTION_CONTRACT_CLAUSE}`;
 
 const { version: PACKAGE_VERSION } = createRequire(import.meta.url)(
   "../package.json"

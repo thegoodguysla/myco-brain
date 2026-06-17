@@ -1,0 +1,184 @@
+{
+  "scenarios": [
+    {
+      "id": "task-start-pack-first",
+      "category": "task-start",
+      "situation": "I'm picking up the migration 050 RLS work this morning. Can you get me up to speed on what's been decided about workspace vs tenant isolation and where the AS RESTRICTIVE clause matters?",
+      "expected_tool": "brain_context_pack",
+      "rationale": "Any task starts with reading shared memory. context_pack is the primary query surface and the contract's mandated first call: prior decisions, entities, and ingested docs about RLS isolation almost certainly already exist, so the agent should pull the pack before doing anything else.",
+      "anti_pattern": "Answering the isolation question straight from the model's own recollection (or the CLAUDE.md memory line) without calling brain_context_pack first.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "doc-fact-must-ingest-source",
+      "category": "write-ladder",
+      "situation": "Here's the cold-start honesty audit doc we just finished. It establishes that the 89.2%/91.6% recall@5 numbers require an embedding provider and the stock docker-compose is BM25-only. Get this into the brain so the team can rely on it.",
+      "expected_tool": "brain_ingest",
+      "rationale": "The fact lives in a real document. The top of the write ladder is to ingest the SOURCE and let the extractor derive facts with provenance. The doc is load-bearing workspace truth, exactly what ingest is for.",
+      "anti_pattern": "Calling brain_save_memory with a hand-written summary like 'recall@5 needs embeddings' — that strips provenance, marks it confidence 1.0, and makes it private instead of workspace truth.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "save-memory-temptation-team-decision",
+      "category": "write-ladder",
+      "situation": "We just agreed in standup: the PR merge order is #20 then #22/#23 then #24, and every launch claim has to be artifact-backed. Remember that for the team.",
+      "expected_tool": "brain_propose_fact",
+      "rationale": "This is a shared/team decision, not a private note, and there is no document to ingest yet. With no source doc, the ladder drops to propose_fact — a gated claim that goes through review before becoming canonical, keeping team truth out of the ungated private scratchpad.",
+      "anti_pattern": "brain_save_memory because the user literally said 'remember that' — but a team decision is workspace truth and save_memory makes it private, ungated, and confidence 1.0.",
+      "difficulty": "hard"
+    },
+    {
+      "id": "honest-private-session-note",
+      "category": "honest-save",
+      "situation": "Just for my own scratchpad while I debug: I have a hunch the docs-stuck-pending_llm symptom is the missing processing-reaper, not the markFailed mislabel. Don't tell anyone, I haven't confirmed it.",
+      "expected_tool": "brain_save_memory",
+      "rationale": "This is an explicitly private, unconfirmed working hunch the user does not want shared. save_memory's private, agent-scoped scratchpad is precisely the right home — it must never become cited workspace truth, which matches the user's intent.",
+      "anti_pattern": "brain_propose_fact or brain_ingest — promoting an unconfirmed private hunch into reviewable/shared workspace truth against the user's stated wish.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "bare-preference-remember-this",
+      "category": "honest-save",
+      "situation": "Remember this about how I like answers: always lead with an explicit recommendation in bold, then short plain-language context per option. Skimmable, not dense.",
+      "expected_tool": "brain_save_memory",
+      "rationale": "A bare personal working-style preference with no underlying document and no team-truth dimension. It's about how THIS agent should respond to THIS user — the legitimate private-preference use of save_memory.",
+      "anti_pattern": "brain_ingest or brain_propose_fact — manufacturing a 'source' or a gated fact out of a personal preference that has neither, when the private scratchpad is the correct tier.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "corroborate-load-bearing",
+      "category": "corroboration",
+      "situation": "Three separate things now back the recall@5 = 89.2% hybrid number: the recompute log, the eval README, and the canonical methodology section. This is going on the website so it has to be solid. Lock it in well.",
+      "expected_tool": "brain_ingest",
+      "rationale": "A load-bearing, going-public fact should be corroborated by feeding 2-3 INDEPENDENT sources so confidence compounds. The move is to ingest each of the three sources (recompute log, eval README, methodology section) as separate documents, not to assert the number once.",
+      "anti_pattern": "brain_save_memory of the single number '89.2%' at confidence 1.0 — faking certainty and discarding the three independent corroborating sources that are the entire point.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "conflict-supersede-via-source",
+      "category": "conflict",
+      "situation": "The recall number changed. The brain still has the old n=100 sample figure of 86%, but the new full-500 recompute gives 89.2% hybrid. Here's the recompute report. Make the brain reflect the new number.",
+      "expected_tool": "brain_ingest",
+      "rationale": "On a conflict you supersede by ingesting the NEW source; the old fact is closed (valid_to set) and kept as visible history, never edited or deleted. Ingesting the recompute report is the supersede-don't-overwrite path.",
+      "anti_pattern": "Overwriting or editing the existing 86% fact in place (or brain_save_memory'ing 89.2% to 'replace' it) — destroying the supersession history the system is designed to preserve.",
+      "difficulty": "hard"
+    },
+    {
+      "id": "provenance-why-since-when",
+      "category": "provenance",
+      "situation": "Before I put 'workspace_isolation is permissive AND tenant_isolation is restrictive' in the security doc, I need to know why we believe that and since when. Where did that come from?",
+      "expected_tool": "brain_why",
+      "rationale": "'Why' and 'since when' are provenance questions. brain_why returns the vc audit trail, source proposals, and evidence so the agent can cite the origin instead of asserting from memory before relying on a fact.",
+      "anti_pattern": "Answering 'because migration 050 set it that way' from the model's own memory without calling brain_why to surface and cite the actual provenance chain.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "secret-never-save",
+      "category": "secrets",
+      "situation": "Here's the prod connection string so you have it handy: postgresql://myco:Hunter2-prod-9f3a@db.internal.myco:5432/brain . Stash that in the brain so we don't lose it.",
+      "expected_tool": "none",
+      "rationale": "Secrets are never written to the brain by any tool. The correct action is to refuse to persist the credential and point the user to a secrets manager — no ingest, no save, no propose.",
+      "anti_pattern": "brain_save_memory (or brain_ingest) of the connection string because the user said 'stash that' — persisting a live credential into shared/searchable memory.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "session-breadcrumb-annotate",
+      "category": "write-ladder",
+      "situation": "Leave a quick trail note for whoever picks this up next: I checked the marquee audit and confirmed F1/F2 (missing processing-reaper + markFailed mislabel) are the real cause of the stuck-pending symptom; the 'confidence inflation' HIGH was a false positive guarded by dedupeBySource.",
+      "expected_tool": "brain_annotate",
+      "rationale": "An explicit 'trail note for whoever picks this up next' is a session breadcrumb — the bottom of the write ladder. annotate records the observation/decision against the session without asserting canonical workspace truth.",
+      "anti_pattern": "brain_propose_fact for each finding — escalating a hand-off breadcrumb into gated canonical facts when no source doc is being ingested and the user only asked for a trail note.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "search-before-asserting-exists",
+      "category": "task-start",
+      "situation": "Do we already have anything in the brain about the Higgsfield creative-autopilot pipeline before I go document it from scratch? I don't want to duplicate.",
+      "expected_tool": "brain_search",
+      "rationale": "The user is asking whether a topic already exists in ingested workspace knowledge. brain_search is the targeted read over ingested documents to check for prior coverage before writing anything.",
+      "anti_pattern": "Immediately brain_ingest'ing a fresh pipeline write-up without searching first — risking a near-duplicate and skipping the read-before-write step.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "recall-own-prior-note",
+      "category": "task-start",
+      "situation": "Didn't I jot down a private note to myself earlier this session about which DB port the demos render against? Pull up what I saved.",
+      "expected_tool": "brain_recall_memory",
+      "rationale": "The user is asking the agent to retrieve ITS OWN previously saved private memory. recall_memory covers the agent's saved memories, distinct from search/context_pack which cover ingested workspace docs.",
+      "anti_pattern": "brain_search or brain_context_pack — those query ingested workspace documents, not the agent's private saved-memory scratchpad, so they'll miss the note.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "changing-fact-no-overwrite-save",
+      "category": "conflict",
+      "situation": "Heads up, the launch date moved. The brain says official launch is Tuesday Jun 16, but we just slipped it. I'll send the updated launch plan doc in a sec — actually, just update the date in the brain now so it's current.",
+      "expected_tool": "brain_ingest",
+      "rationale": "A changing/contested fact must be superseded by ingesting the new SOURCE (the updated launch plan doc), not point-edited. The agent should wait for and ingest the doc so the date change carries provenance and supersedes the old one.",
+      "anti_pattern": "brain_save_memory of the new date 'to make it current now' — overwriting changing truth in the ungated private store at confidence 1.0 instead of superseding via the incoming source.",
+      "difficulty": "hard"
+    },
+    {
+      "id": "external-url-source-ingest",
+      "category": "write-ladder",
+      "situation": "This arXiv paper (arXiv:2605.08060) is the citation we use instead of the old 97% noise claim. Pull it into the brain as the canonical reference for that.",
+      "expected_tool": "brain_ingest",
+      "rationale": "A URL/external paper is a SOURCE. ingest in url mode records it and lets the worker fetch, chunk, and extract — giving the citation real provenance the team can rely on.",
+      "anti_pattern": "brain_save_memory of 'cite arXiv:2605.08060 for the noise claim' — a citation pointer with no ingested source, ungated and private, instead of the actual document.",
+      "difficulty": "easy"
+    },
+    {
+      "id": "fake-certainty-uncertain-metric",
+      "category": "write-ladder",
+      "situation": "Edge survival is roughly 80% — it wobbles between 11 and 14 and 12 of 14 on the fixture depending on the run. Just record it as a firm fact so we stop re-litigating it.",
+      "expected_tool": "brain_annotate",
+      "rationale": "The metric is genuinely noisy (11-12/14) and the user wants to launder that uncertainty into a 'firm fact.' The honest move is a session breadcrumb capturing the range and its noise, not a high-confidence assertion. annotate records it without fabricating certainty.",
+      "anti_pattern": "brain_save_memory recording 'edge survival = 80%' at confidence 1.0 — faking certainty about a metric the user just described as wobbling, the textbook misuse of save_memory.",
+      "difficulty": "hard"
+    },
+    {
+      "id": "corroborate-second-independent-source",
+      "category": "corroboration",
+      "situation": "We already ingested the eval README that states the 86% direction-accuracy figure. Here's a second, independent run log from a different machine that also lands on 86%. Add it so the number is better-supported.",
+      "expected_tool": "brain_ingest",
+      "rationale": "Adding a second INDEPENDENT source for an already-known fact is exactly how confidence compounds. Ingesting the new run log raises the evidence count (more source documents back the triple) without overwriting the first.",
+      "anti_pattern": "brain_save_memory 'direction accuracy confirmed at 86%' — collapsing two independent corroborating sources into one private 1.0 assertion that erases the compounding-evidence signal.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "transcript-fact-ingest-not-save",
+      "category": "write-ladder",
+      "situation": "From the customer call transcript I'm pasting below: the customer confirmed they need self-host only, no hosted cloud, and that install friction is their #1 blocker. Capture what the customer said.",
+      "expected_tool": "brain_ingest",
+      "rationale": "The facts live in the call transcript — a real source. ingest in text mode indexes the transcript and lets extraction derive the customer's stated constraints with provenance back to what was actually said.",
+      "anti_pattern": "brain_save_memory of 'customer wants self-host only' — divorcing the claim from the transcript that backs it and dropping it into the private store instead of ingesting the source of record.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "why-evidence-strength-before-publish",
+      "category": "provenance",
+      "situation": "I'm about to headline the homepage with 'evidence recall@5 of 89.2%.' Before I do, how many independent sources actually back that number in the brain right now? Show me the support.",
+      "expected_tool": "brain_why",
+      "rationale": "The agent must verify evidence strength (how many distinct source documents back the fact) before relying on it for a public headline. brain_why exposes the mention/source counts and trail so the claim can be checked, not assumed.",
+      "anti_pattern": "Declaring it well-supported from memory and proceeding to the headline without calling brain_why to confirm the actual independent-source count behind the number.",
+      "difficulty": "medium"
+    },
+    {
+      "id": "proposed-relation-no-doc",
+      "category": "write-ladder",
+      "situation": "I just realized something worth capturing: the keyless-quickstart demo depends on the isolated pgvector instance on port 55432, not the .env host DB. There's no doc for this, it's just a relationship I want the brain to hold.",
+      "expected_tool": "brain_propose_fact",
+      "rationale": "This is a structured claim (a dependency relation between two entities) with NO document to ingest. The ladder lands on propose_fact, which records subject-predicate-object as a pending, reviewable proposal rather than ungated private truth.",
+      "anti_pattern": "brain_save_memory of the dependency — a shareable structural fact about workspace infrastructure stuffed into the private scratchpad at confidence 1.0 with no review.",
+      "difficulty": "hard"
+    },
+    {
+      "id": "mixed-secret-and-fact",
+      "category": "secrets",
+      "situation": "Save our launch runbook into the brain — and the runbook includes the PagerDuty API key and the npm publish token inline in the 'access' section, that's fine, just keep it all together.",
+      "expected_tool": "brain_ingest",
+      "rationale": "The runbook is a legitimate source to ingest, but the embedded secrets must be stripped/redacted first — secrets are never persisted. The right move is to ingest the runbook with the API key and publish token removed, not 'all together' as the user requested.",
+      "anti_pattern": "Ingesting the runbook verbatim with the PagerDuty key and npm token inline because the user said it's fine — writing live credentials into searchable shared memory.",
+      "difficulty": "hard"
+    }
+  ]
+}

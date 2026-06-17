@@ -5,6 +5,66 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.6] — 2026-06-17
+
+An agent-experience release: the agent contract now teaches Myco as the
+adjudication engine it is, and the doctor verifies your setup for real instead of
+trusting config. **No tool-contract changes** (the `brain_*` inputs/outputs are
+unchanged; `brain_ingest` gains an additive `extraction` field). No migrations.
+
+### Changed
+- **Agent contract rewritten to embody "the program writes the facts, not the
+  LLM."** The runtime contract, the pasteable CLAUDE.md / .cursorrules / AGENTS.md
+  manual, the `brain_*` tool descriptions, and the website now teach the
+  source-first write ladder (ingest a source -> propose a claim -> private
+  save_memory) and the engine's mechanics: compounding confidence across
+  independent sources, supersede-don't-overwrite on conflict, provenance via
+  `brain_why`, and propose -> review -> promote. `brain_save_memory` is honestly
+  fenced as a private scratchpad, never workspace truth. The runtime contract is
+  single-sourced so the surfaces cannot drift (CI guard: `npm run check:contract-drift`).
+
+### Added
+- **`mycobrain-doctor` now verifies live, not just config.** For the local Ollama
+  path it pings the server, confirms the model is pulled, and runs a real embed
+  and generation ("live-verified"); it adds an extraction-backlog check and a
+  `--fix` mode that offers to pull missing models. `brain_ingest` returns an
+  honest `extraction: "graph" | "search-only"` receipt so an agent knows whether
+  a fact graph was actually built from the source.
+- **Agent-contract eval harness** (`npm run eval:contract`, gated on
+  `ANTHROPIC_API_KEY`): scores whether an agent routes to the right tool across 20
+  adversarial scenarios, so the contract is measured and regression-guarded.
+
+## [1.2.5] — 2026-06-17
+
+A frictionless-install and value-surfacing release. **No tool-contract changes** —
+every `brain_*` input is unchanged; the new response fields below are additive and
+optional. No migrations.
+
+### Added
+- **`npx @mycobrain/install` — one command to connect any client.** A new
+  installer (`mycobrain-install`, fronted by the `@mycobrain/install` launcher)
+  detects your MCP client and writes the right config for Claude Code, Claude
+  Desktop, Cursor, Codex, or Windsurf (with `--print` snippets for Zed, Continue,
+  Cline), then runs onboarding. Flags: `--client`, `--all`, `--print`, `--scope`,
+  `--no-onboard`.
+- **Onboarding now indexes your own repo (opt-in).** On a fresh brain,
+  `mycobrain-onboard` asks before indexing the current project, then proves recall
+  on your own code in a fresh context — the fastest felt "it just knew", with no
+  export wait. Decline to leave the workspace untouched; `--tour` runs on
+  throwaway sample data instead.
+- **"Recalled from your memory" attribution.** `brain_recall_memory` and
+  `brain_context_pack` attach an optional `attribution` credit line that decays as
+  the workspace matures (`BRAIN_ATTRIBUTION`, `BRAIN_ATTRIBUTION_DECAY`). It rides
+  in a structured field, never the result body.
+- **Pushed stats.** `brain_context_pack` adds a once-per-session `session_greeting`
+  ("Myco has N facts indexed for this workspace"); `brain_save_memory` adds a
+  log-spaced `milestone` toast (10/50/100/250, then every 250).
+- **`mycobrain-ingest --watch-downloads`.** Opt-in watcher that auto-imports a
+  ChatGPT or Claude export `.zip` the moment it lands in `~/Downloads`.
+- **Paste-anywhere agent instructions.** `mycobrain-install` prints, and
+  `docs/agent-instructions.md` documents, a portable CLAUDE.md / `.cursorrules` /
+  AGENTS.md contract for when to recall, save, and cite.
+
 ## [1.2.4] — 2026-06-16
 
 A reliability, security, and docs release. **No tool-contract changes** — the

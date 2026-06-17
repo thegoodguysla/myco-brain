@@ -1,0 +1,29 @@
+{
+  "name": "@mycobrain/install",
+  "version": "1.2.5",
+  "description": "One command to connect Myco Brain to your AI agent — wires Claude Code, Cursor, Codex, Claude Desktop, or Windsurf and runs onboarding. Thin launcher for @mycobrain/mcp-server's installer.",
+  "type": "module",
+  "bin": {
+    "myco-install": "index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "memory",
+    "ai",
+    "agents",
+    "claude",
+    "cursor",
+    "codex",
+    "installer"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thegoodguysla/myco-brain.git"
+  },
+  "homepage": "https://mycobrain.dev"
+}
