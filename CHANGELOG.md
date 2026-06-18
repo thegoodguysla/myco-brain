@@ -5,6 +5,18 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.8] — 2026-06-18
+
+Version alignment only — no functional changes. The npm package was bumped to
+1.2.8 during publishing (the compiled output is identical to 1.2.6); this entry
+brings the documented history in line with the published version, and adds the
+`mcpName` field (`io.github.thegoodguysla/myco-brain`) for the Official MCP
+Registry.
+
+## [1.2.7] — 2026-06-18
+
+Version alignment only — republish, no functional changes from 1.2.6.
+
 ## [1.2.6] — 2026-06-17
 
 An agent-experience release: the agent contract now teaches Myco as the

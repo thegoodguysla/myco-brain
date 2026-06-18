@@ -32,11 +32,8 @@ can trace. Myco Brain is built on the opposite contract:
 > the bar** — from corroboration-gated auto-promotion (the default) to strict
 > human review of every fact (`BRAIN_REQUIRE_HUMAN_REVIEW=1`).
 
-Claude, Cursor, Windsurf, Continue, Zed, and custom agents share one memory
-backed by your own Postgres. The write path is deterministic, every fact is
-source-traceable, and the trust engine does what no markdown wiki can: facts
-**earn** confidence from independent corroboration and **lose** it when
-contradicted — with the full history kept, audited, and queryable.
+Claude, Cursor, Windsurf, Continue, Zed, and custom agents all share one memory
+backed by your own Postgres.
 
 ⭐ If the trust model resonates, a star helps others find it.
 
@@ -54,9 +51,10 @@ npx -y -p @mycobrain/mcp-server mycobrain-ingest github:your-org/your-repo
 #    → answered from your docs, with the source cited.
 ```
 
-**Zero API keys, all the way down:** full-text search, semantic search (local
-embeddings), and the knowledge graph (local extraction) all run with no hosted
-dependency. Add an Anthropic key only if you want the most accurate graph.
+> [!TIP]
+> **Zero API keys, all the way down.** Full-text search, semantic search (local
+> embeddings), and the knowledge graph (local extraction) all run with no hosted
+> dependency. Add an Anthropic key only if you want the most accurate graph.
 
 **MCP-native by design — your agent knows _when_ to use memory, not just _how_.**
 Most MCP servers expose tools and hope the model calls them. Myco ships a usage
@@ -106,16 +104,18 @@ database in seconds, no LLM required.*
 
 ## The schema evolves with your data (dynamic schema)
 
-The extraction worker notices entity kinds and relationship types your catalog
-doesn't have yet and **proposes** them (`brain_stats`: *"Brain proposed 3 new
-types from your data"*). Promotion is yours by default — or opt in to
-auto-promotion for types corroborated across enough **distinct source
-documents** — counted per document, not per mention, so two documents passed
-back and forth can't manufacture consensus — with a full audit trail
-(`BRAIN_SCHEMA_AUTO_PROMOTE=1`). One chatty document can never promote anything,
-and a promoted type stays **scoped to the workspace that earned it** — one
-client's vocabulary never leaks into another's catalog (see
-[per-client isolation](#one-isolated-workspace-per-client--built-for-agencies)).
+- The extraction worker notices entity kinds and relationship types your catalog
+  doesn't have yet and **proposes** them (`brain_stats`: *"Brain proposed 3 new
+  types from your data"*).
+- **Promotion is yours by default** — or opt into auto-promotion for types
+  corroborated across enough **distinct source documents**
+  (`BRAIN_SCHEMA_AUTO_PROMOTE=1`), counted per document, not per mention, so two
+  documents passed back and forth can't manufacture consensus. One chatty
+  document can never promote anything.
+- A promoted type stays **scoped to the workspace that earned it** — one client's
+  vocabulary never leaks into another's catalog (see
+  [per-client isolation](#one-isolated-workspace-per-client--built-for-agencies)).
+
 *Proofs: `npm run test:dynamic-schema`, `npm run test:schema-promotion`.*
 
 **You pick the trust dial:**
@@ -144,9 +144,8 @@ Multi-agent teams get real isolation: documents marked `private` are readable
 **only by the agent that created them** — enforced in every read tool, on top
 of workspace row-level security. Workspace memory stays shared. *Proof:
 `npm run test:sharing` (a two-agent visibility matrix).* Like workspace
-isolation, per-agent privacy is enforced by Postgres RLS, so it binds only
-under the `NOSUPERUSER` `brain_app` role — not the default superuser quickstart
-role (see [the agency note](#one-isolated-workspace-per-client--built-for-agencies)).
+isolation, it binds only under the least-privilege `brain_app` role
+([security note](#one-isolated-workspace-per-client--built-for-agencies)).
 
 ## One isolated workspace per client — built for agencies
 
@@ -157,15 +156,19 @@ to Client A cannot return Client B's rows. The
 the least-privilege DB role that makes the isolation actually bind. *Proof:
 `npm run test:agency` — Client A sees zero of Client B's facts.*
 
-> **Important — isolation binds only under the least-privilege role.** RLS does
-> not constrain a Postgres **superuser**, and the zero-config quickstart's
-> default `brain` role *is* a superuser (fine for a single-workspace self-host —
-> there's nothing to isolate). Before you put more than one client in one
-> database, run the app as the `NOSUPERUSER` `brain_app` role the agency kit
-> ships; `mycobrain-doctor` flags a superuser connection. Multi-tenant isolation
-> is a guarantee of `brain_app`, not of the default quickstart role.
+> [!IMPORTANT]
+> **Isolation binds only under the least-privilege role.** RLS does not constrain
+> a Postgres **superuser**, and the zero-config quickstart's default `brain` role
+> *is* a superuser (fine for a single-workspace self-host — there's nothing to
+> isolate). Before you put more than one client in one database, run the app as
+> the `NOSUPERUSER` `brain_app` role the agency kit ships; `mycobrain-doctor`
+> flags a superuser connection. Multi-tenant isolation is a guarantee of
+> `brain_app`, not of the default quickstart role.
 
-### Multi-tenant gateways: who is the caller? (`BRAIN_TRUST_REQUEST_IDENTITY`)
+<details>
+<summary><strong>Advanced — multi-tenant gateways: who is the caller? (<code>BRAIN_TRUST_REQUEST_IDENTITY</code>)</strong></summary>
+
+<br>
 
 RLS decides *which rows a tenant can read*; this setting decides *which tenant a
 request is* — the step before RLS. On the **stdio** server, identity is taken
@@ -181,6 +184,8 @@ tenant itself — then per-request identity is honored (and a service-role JWT
 must **equal** `BRAIN_SERVICE_ROLE_KEY`, not merely look like one). **Single-tenant
 self-hosts need none of this** — their identity is already environment-derived.
 
+</details>
+
 ## Query over HTTP (read-only)
 
 Not everything speaks MCP. For a web app, an automation, or a partner backend,
@@ -195,19 +200,19 @@ curl -s localhost:8787/search \
   -d '{"query":"what did we decide about pricing?","limit":5}'
 ```
 
-The key scopes every query to its workspace (same row-level security as MCP);
-there are **no write routes**. As with MCP, that row-level scoping binds only
-under the `NOSUPERUSER` `brain_app` role — never expose REST while running as
-the default `brain` superuser (`mycobrain-doctor` flags it). By default, installs migrated to
-`20260616000051_agent_api_key_verification.sql` verify each key's `<secret>`
-segment against `agent_api_keys` when a secret is registered for that
-workspace+agent (register/rotate via `brain_set_agent_api_key_secret(...)`).
-Until a secret is registered, the key acts as a bearer token (workspace scoping
-still comes from the key string, not an independently verified secret); set
-`BRAIN_REQUIRE_API_KEY_SECRET=1` to require a registered secret for every agent
-key before exposing REST. It binds to loopback by default — set `BRAIN_REST_HOST=0.0.0.0`
-behind your own TLS/proxy only when you mean to expose it, and treat the key
-like a password. *Proof: `npm run test:rest`.*
+- **Scoping:** the key scopes every query to its workspace (same RLS as MCP), and
+  there are **no write routes**. Like MCP, this binds only under the least-privilege
+  `brain_app` role ([security note](#one-isolated-workspace-per-client--built-for-agencies)) —
+  never expose REST as the default `brain` superuser (`mycobrain-doctor` flags it).
+- **Key verification:** installs migrated to `…_agent_api_key_verification.sql`
+  verify each key's `<secret>` against `agent_api_keys` once a secret is registered
+  (register/rotate via `brain_set_agent_api_key_secret(...)`). Until then the key
+  acts as a bearer token; set `BRAIN_REQUIRE_API_KEY_SECRET=1` to require a
+  registered secret before exposing REST.
+- **Binding:** loopback by default — set `BRAIN_REST_HOST=0.0.0.0` behind your own
+  TLS/proxy only when you mean to expose it, and treat the key like a password.
+
+*Proof: `npm run test:rest`.*
 
 ## Five Verified Demos
 
@@ -322,11 +327,13 @@ What starts:
 - MCP server
 - Extraction worker
 
-No API keys required to boot. BM25 search works immediately. For **semantic
-search**, run local embeddings with Ollama (`BRAIN_EMBED_PROVIDER=ollama`) or
-set `BRAIN_OPENAI_API_KEY`. For the **knowledge graph**, use
-[Ollama locally](#build-the-knowledge-graph--locally-no-api-keys) (no key) or
-`BRAIN_ANTHROPIC_API_KEY`.
+No API keys required to boot — here's what each capability needs:
+
+| Capability | Out of the box? | To enable |
+|---|---|---|
+| Full-text (BM25) search | ✅ immediately | nothing |
+| Semantic search | needs embeddings | `BRAIN_EMBED_PROVIDER=ollama` (local, keyless) or `BRAIN_OPENAI_API_KEY` |
+| Knowledge graph | needs an extractor | [Ollama locally](#build-the-knowledge-graph--locally-no-api-keys) (keyless) or `BRAIN_ANTHROPIC_API_KEY` (most accurate) |
 
 Confirm it's healthy in one command. `mycobrain-doctor` doesn't just check that
 env vars are set — for the local Ollama path it **live-verifies** the setup (pings
@@ -496,15 +503,20 @@ reads your ingested documents and:
 - pulls out the **entities** — people, companies, projects, places;
 - **collapses duplicates** so "Priya" and "Priya Raman" become one node;
 - connects them with **directed relationships** — *Mara Quinn —works for→
-  Northwind Coffee*, never the reverse (the shipped prompt is
-  direction-aware: measured **86% directed accuracy** (12/14) with `llama3.2:3b`
-  — and relation endpoints the model forgets to list are recovered
-  automatically, lifting graph edge survival from 0% to **~80%** (11–12 of 14 on
-  the gold fixture, gated at ≥75%); *proof: `npm run test:direction`*);
+  Northwind Coffee*, never the reverse (the shipped prompt is direction-aware,
+  and endpoints the model forgets to list are recovered automatically);
 - and **proposes new types** it observes, so the schema grows with your domain.
 
 You choose which model does the extraction. **Nothing leaves your machine with
 Ollama; Anthropic produces the most accurate graph.**
+
+Two distinct, often-conflated quality measures on the 14-edge gold fixture
+(*proof: `npm run test:direction`*):
+
+| Metric | What it measures | Score |
+|---|---|---|
+| **Directed accuracy** | edges point the right way | **86%** (12/14, `llama3.2:3b`) |
+| **Edge survival** | endpoints recovered, not dropped | **~80%** (11–12/14, gated ≥75%) |
 
 ### Option A — Local & free (Ollama, no API key)
 
@@ -544,17 +556,22 @@ The point here is **reproducibility, not a single score** — the
 [LongMemEval](https://github.com/xiaowu0162/LongMemEval) harness ships in this
 repo, so you run the numbers yourself; we don't assert them.
 
-**End-to-end QA** — on the complete 500-question `oracle` subset (no sampling):
-**73.6%**, reader `gpt-4o-mini`, judge `gpt-4o`. The `oracle` subset hands the
-reader only the gold evidence sessions, so it isolates *reasoning*, not
-retrieval — the retrieval number is `recall@5`, below. We publish the
-strong-reader config side by side (gpt-4o reader: 71.8% — yes, *lower*; with the
-evidence already in context the memory layer is saturated, so the reader isn't
-the binding constraint, which is exactly why single-headline comparisons across
-systems mislead).
-Numbers other systems quote in the ~90% range are typically a different subset,
-reader, and judge — we're not claiming a head-to-head win, we're handing you the
-harness so you can score any system on the same footing.
+| Metric | Subset (500q) | Config | Score |
+|---|---|---|---|
+| End-to-end QA | `oracle` | reader gpt-4o-mini · judge gpt-4o | **73.6%** |
+| End-to-end QA | `oracle` | strong reader (gpt-4o) | 71.8% |
+| Evidence recall@5 (`Ev@5`) | `longmemeval_s` | hybrid (vector + BM25) | **89.2%** |
+| Evidence recall@5 (`Ev@5`) | `longmemeval_s` | keyless recency reranker | **91.6%** |
+| Evidence recall@10 | `longmemeval_s` | hybrid → recency | 90.2% → 93.2% |
+
+**End-to-end QA** uses the `oracle` subset, which hands the reader only the gold
+evidence sessions — so it isolates *reasoning*, not retrieval (that's `Ev@5`,
+below). The strong-reader config scores *lower* (gpt-4o, 71.8%): with the evidence
+already in context the memory layer is saturated, so the reader isn't the binding
+constraint — exactly why single-headline comparisons across systems mislead.
+Numbers others quote in the ~90% range are typically a different subset, reader,
+and judge; we're not claiming a head-to-head win, just handing you the harness to
+score any system on the same footing.
 
 ```bash
 cd evals/longmemeval && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ../..
@@ -563,16 +580,13 @@ OPENAI_API_KEY=sk-... DATABASE_URL=postgresql://brain:brain@localhost:5432/brain
   --examples 500 --subset longmemeval_oracle --judge-model gpt-4o
 ```
 
-**Retrieval quality** — the real retrieval metric (the `oracle` subset above
-doesn't test it). On the full 500-question `longmemeval_s` subset with
-distractors, evidence recall@5 (`Ev@5`) is **89.2%** with hybrid (vector + BM25)
-retrieval and **91.6%** with the **keyless recency reranker**
-(`brain_search(reranker: 'recency')` — deterministic, no API key, no network
-call); recall@10 rises 90.2% → 93.2%. Hybrid retrieval needs an embedding
-provider (keyless via local Ollama embeddings, or OpenAI); stock BM25-only
-search scores lower. Reproduce
-(embeddings only, no judge): `python -m evals.longmemeval.run --subset
-longmemeval_s -n 500 --no-qa`.
+**Retrieval quality** (`Ev@5` in the table) is the real retrieval metric — the
+`oracle` subset above doesn't test it — measured on the full `longmemeval_s`
+subset *with distractors*. The **recency reranker** (`brain_search(reranker:
+'recency')`) is deterministic: no API key, no network call. Hybrid retrieval needs
+an embedding provider (keyless via local Ollama, or OpenAI); stock BM25-only
+search scores lower. Reproduce (embeddings only, no judge):
+`python -m evals.longmemeval.run --subset longmemeval_s -n 500 --no-qa`.
 
 Methodology, both configs, per-category breakdown (including the categories
 that are hard for us — reported, not hidden), and cheaper sample commands:
@@ -729,12 +743,13 @@ mycobrain-ingest --from chatgpt-export ./chatgpt-export.zip
 mycobrain-ingest --from claude-export ./claude-export.zip
 ```
 
-Re-importing the same export never duplicates — each conversation becomes one
-content-hash-keyed document, so a re-run is a no-op (continue a conversation
-and re-export, and the longer transcript imports as a new version alongside
-the old). ChatGPT's branched conversations import the ACTIVE branch (the
-transcript you actually kept, not rejected regenerations), and `brain_why`
-traces every imported fact back to its export file.
+- **Re-importing never duplicates** — each conversation is one content-hash-keyed
+  document, so a re-run is a no-op. Continue a conversation and re-export, and the
+  longer transcript imports as a new version alongside the old.
+- **Branched ChatGPT threads import the ACTIVE branch** — the transcript you
+  actually kept, not rejected regenerations.
+- **Full provenance** — `brain_why` traces every imported fact back to its export file.
+
 *Proof: `npm run test:export-import`.*
 
 **Hands-free — watch your Downloads.** Request your export, then let Myco import

@@ -1,6 +1,7 @@
 {
   "name": "@mycobrain/mcp-server",
-  "version": "1.2.6",
+  "version": "1.2.8",
+  "mcpName": "io.github.thegoodguysla/myco-brain",
   "description": "Self-hosted memory layer for AI agents — MCP server backed by Postgres + pgvector + knowledge graph",
   "type": "module",
   "main": "dist/index.js",
