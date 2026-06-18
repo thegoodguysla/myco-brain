@@ -1,0 +1,94 @@
+<svg viewBox="0 0 900 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="t d" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <title id="t">Myco architecture</title>
+  <desc id="d">MCP clients call 11 brain tools, which flow through a deterministic write path into Postgres, the authoritative source of truth. A trust engine compounds confidence and supersedes contradictions. An optional local-first LLM layer only proposes into the write path; it never becomes the store.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#0c1f17"/>
+      <stop offset="1" stop-color="#081511"/>
+    </linearGradient>
+    <radialGradient id="node" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7cf1b8"/>
+      <stop offset="0.5" stop-color="#34c98a"/>
+      <stop offset="1" stop-color="#34c98a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="pg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10392a"/>
+      <stop offset="1" stop-color="#0c2c20"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arw" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 Z" fill="#5f9a7d"/></marker>
+    <marker id="arwS" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L6.5,3 L0,6 Z" fill="#4f8e72"/></marker>
+    <marker id="arwSb" markerWidth="9" markerHeight="9" refX="2.5" refY="3" orient="auto"><path d="M6.5,0 L0,3 L6.5,6 Z" fill="#4f8e72"/></marker>
+  </defs>
+
+  <rect x="6" y="6" width="888" height="500" rx="22" fill="url(#bg)" stroke="#27513c" stroke-width="1.5"/>
+
+  <!-- faint mycelium texture -->
+  <g stroke="#5fe9ab" stroke-opacity="0.07" fill="none" stroke-width="1.2" filter="url(#glow)">
+    <path d="M120,150 C200,250 60,330 150,430"/>
+    <path d="M780,210 C700,300 840,360 760,470"/>
+    <path d="M260,170 C300,210 360,230 300,290"/>
+  </g>
+
+  <!-- header -->
+  <text x="40" y="56" font-family="ui-serif, Georgia, 'Times New Roman', serif" font-size="30" fill="#f1efe3"><tspan font-weight="600">myco</tspan><tspan fill="#9fc9ad" font-style="italic" font-size="22">  architecture</tspan></text>
+  <text x="41" y="80" font-size="13" fill="#86ad96">The database is authoritative. LLMs propose — they never become the store.</text>
+
+  <!-- ===== main pipeline (left) ===== -->
+  <!-- clients -->
+  <g>
+    <rect x="60" y="104" width="404" height="58" rx="12" fill="#0f2a1f" stroke="#2f5a44"/>
+    <text x="262" y="130" text-anchor="middle" font-size="15" font-weight="600" fill="#eef0e6">MCP clients</text>
+    <text x="262" y="150" text-anchor="middle" font-size="11.5" fill="#9bc1ab">Claude · Cursor · Windsurf · Zed · custom</text>
+  </g>
+  <line x1="262" y1="162" x2="262" y2="192" stroke="#5f9a7d" stroke-width="1.6" marker-end="url(#arw)"/>
+  <circle cx="262" cy="162" r="6" fill="url(#node)"/>
+
+  <!-- tools -->
+  <g>
+    <rect x="60" y="194" width="404" height="58" rx="12" fill="#0f2a1f" stroke="#2f5a44"/>
+    <text x="262" y="220" text-anchor="middle" font-size="15" font-weight="600" fill="#eef0e6">11 brain tools</text>
+    <text x="262" y="240" text-anchor="middle" font-size="11.5" fill="#9bc1ab">context_pack · search · why · ingest · save / recall</text>
+  </g>
+  <line x1="262" y1="252" x2="262" y2="282" stroke="#5f9a7d" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- write path -->
+  <g>
+    <rect x="60" y="284" width="404" height="58" rx="12" fill="#0f2a1f" stroke="#2f5a44"/>
+    <text x="262" y="310" text-anchor="middle" font-size="15" font-weight="600" fill="#eef0e6">Deterministic write path</text>
+    <text x="262" y="330" text-anchor="middle" font-size="11.5" fill="#9bc1ab">content-hash dedup · idempotency · field-level audit</text>
+  </g>
+  <line x1="262" y1="342" x2="262" y2="380" stroke="#5f9a7d" stroke-width="1.6" marker-end="url(#arw)"/>
+
+  <!-- postgres anchor -->
+  <g filter="url(#glow)"><rect x="60" y="382" width="404" height="96" rx="14" fill="url(#pg)" stroke="#57e0a0" stroke-width="1.6"/></g>
+  <circle cx="92" cy="410" r="7" fill="url(#node)"/>
+  <text x="262" y="416" text-anchor="middle" font-size="17" font-weight="700" fill="#f1efe3">Postgres — source of truth</text>
+  <text x="262" y="440" text-anchor="middle" font-size="11.5" fill="#a7cdb7">documents · entities · directed relations</text>
+  <text x="262" y="458" text-anchor="middle" font-size="11.5" fill="#a7cdb7">claims ledger · provenance · vectors</text>
+
+  <!-- ===== right column ===== -->
+  <!-- LLM advisory -->
+  <g>
+    <rect x="528" y="246" width="332" height="120" rx="12" fill="#10241d" stroke="#2c5240" stroke-dasharray="5 4"/>
+    <text x="694" y="282" text-anchor="middle" font-size="15" font-weight="600" fill="#eef0e6">LLM advisory layer</text>
+    <text x="694" y="304" text-anchor="middle" font-size="11.5" fill="#8fb6a0" font-style="italic">optional · local-first</text>
+    <text x="694" y="326" text-anchor="middle" font-size="11.5" fill="#9bc1ab">Ollama / Anthropic extraction</text>
+    <text x="694" y="344" text-anchor="middle" font-size="11.5" fill="#9bc1ab">Ollama / OpenAI embeddings</text>
+  </g>
+  <!-- proposes only (dashed into write path) -->
+  <path d="M528,318 L470,316" fill="none" stroke="#4f8e72" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arwS)"/>
+  <text x="500" y="300" text-anchor="middle" font-size="10.5" fill="#7fb195" font-style="italic">proposes only</text>
+
+  <!-- trust engine -->
+  <g>
+    <rect x="528" y="382" width="332" height="96" rx="12" fill="#0f2a1f" stroke="#2f5a44"/>
+    <text x="694" y="414" text-anchor="middle" font-size="15" font-weight="600" fill="#eef0e6">Trust engine</text>
+    <text x="694" y="436" text-anchor="middle" font-size="11.5" fill="#9bc1ab">confidence compounds with evidence</text>
+    <text x="694" y="454" text-anchor="middle" font-size="11.5" fill="#9bc1ab">contradictions supersede, never overwrite</text>
+  </g>
+  <!-- postgres <-> trust -->
+  <line x1="466" y1="430" x2="526" y2="430" stroke="#4f8e72" stroke-width="1.6" marker-end="url(#arwS)" marker-start="url(#arwSb)"/>
+</svg>

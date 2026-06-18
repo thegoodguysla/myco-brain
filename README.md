@@ -615,24 +615,12 @@ SaaS, customer support, e-commerce).
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    clients["MCP clients<br/>Claude · Cursor · Windsurf · Continue · Zed · custom"]
-    tools["11 MCP tools<br/>context_pack · search · why · neighbors · ingest · save/recall_memory · stats …"]
-    write["Deterministic write path<br/>content-hash dedup · chunking · idempotency keys · field-level audit (vc)"]
-    pg[("Postgres — the source of truth<br/>documents · entities · directed relations · claims ledger<br/>evidence · schema proposals · provenance · vectors")]
-    trust["Trust engine<br/>confidence compounds with independent evidence<br/>contradictions supersede (never overwrite)"]
-    llm["LLM advisory layer (optional, local-first)<br/>Ollama or Anthropic extraction · Ollama or OpenAI embeddings<br/>everything enters via gated proposal queues"]
-
-    clients --> tools --> write --> pg
-    llm -. proposes only .-> write
-    pg <--> trust
-```
+<p align="center">
+  <img src="./docs/architecture.svg" alt="Myco architecture — MCP clients call 11 brain tools through a deterministic write path into Postgres, the source of truth. A trust engine compounds confidence and supersedes contradictions. An optional, local-first LLM layer only proposes; it never becomes the store." width="100%">
+</p>
 
 The design is simple on purpose: **the database is authoritative, the write
-path is programmatic, and LLMs assist without becoming the memory store.** The
-lineage is the Hyperscope/Engelbart tradition of deterministic knowledge
-repositories — applied to agents.
+path is programmatic, and LLMs assist without becoming the memory store.**
 
 ## Tool Surface
 
