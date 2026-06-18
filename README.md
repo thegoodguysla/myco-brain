@@ -9,7 +9,7 @@
 
 [![CI](https://github.com/thegoodguysla/myco-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/thegoodguysla/myco-brain/actions)
 [![npm](https://img.shields.io/npm/v/@mycobrain/mcp-server)](https://www.npmjs.com/package/@mycobrain/mcp-server)
-[![LongMemEval](https://img.shields.io/badge/LongMemEval_oracle-73.6%25_QA-blue)](./evals/longmemeval/README.md)
+[![LongMemEval](https://img.shields.io/badge/LongMemEval-73.6%25_QA_·_recall@5_89--92%25-blue)](./evals/longmemeval/README.md)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](./LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
 
@@ -20,7 +20,7 @@
 - **Keyless & local-first.** Full-text + semantic search and the knowledge graph all run with zero hosted dependency — add an Anthropic key only for the most accurate graph.
 - **Yours.** Apache-2.0, plain Postgres tables, 11 MCP tools. Works with Claude, Cursor, Windsurf, Continue, Zed.
 
-**Who it's for:** **dev teams** running agents that need one shared memory · **agencies** needing hard per-client isolation · **anyone** who wants their assistant to remember across sessions — import your ChatGPT / Claude history and your AI knows you on day one.
+**Who it's for:** **dev teams** running agents that need one shared memory · **agencies** needing hard per-client isolation · **anyone** who wants their assistant to remember across sessions — import your ChatGPT / Claude history (from your data export) and your AI knows you on day one.
 
 _Built solo by a growth marketer — not a career engineer — directing AI coding agents over ~3 months. [How it was built ↓](#who-built-this)_
 
@@ -332,7 +332,7 @@ No API keys required to boot — here's what each capability needs:
 | Capability | Out of the box? | To enable |
 |---|---|---|
 | Full-text (BM25) search | ✅ immediately | nothing |
-| Semantic search | needs embeddings | `BRAIN_EMBED_PROVIDER=ollama` (local, keyless) or `BRAIN_OPENAI_API_KEY` |
+| Semantic search | needs embeddings | `BRAIN_EMBED_PROVIDER=ollama` (local, keyless) |
 | Knowledge graph | needs an extractor | [Ollama locally](#build-the-knowledge-graph--locally-no-api-keys) (keyless) or `BRAIN_ANTHROPIC_API_KEY` (most accurate) |
 
 Confirm it's healthy in one command. `mycobrain-doctor` doesn't just check that
