@@ -56,6 +56,11 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm ci
+      # The service container above is a bare pgvector DB with no schema. Apply
+      # the migrations (the same supabase/migrations/*.sql the quickstart's initdb
+      # mount runs) so the DB-backed tests have real tables to query.
+      - name: Apply DB migrations to the test database
+        run: node test/ci-migrate.mjs
       - name: Run tests
         run: npm test
 
