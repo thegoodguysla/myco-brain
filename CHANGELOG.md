@@ -5,6 +5,35 @@ All notable changes to Myco Brain are documented here. This project follows
 a major version** — the inputs and outputs of the `brain_*` MCP tools will not
 break in a 1.x release.
 
+## [1.2.9] — 2026-06-24
+
+A first-run and surfacing release: connecting Myco is now a guided, self-healing
+walkthrough, every memory remembers which tool wrote it, and an agent can ask the
+brain how it is doing and get an answer. **Additive only** — two new MCP tools
+(`brain_set_mode`, `brain_self_check`) plus additive fields on existing tools; no
+breaking changes to any `brain_*` contract, and no migrations.
+
+### Added
+- **`mycobrain-setup` — a guided, self-healing install.** A nine-step,
+  consent-driven walkthrough replaces the cryptic fresh-machine failure: it checks
+  prerequisites (with a fix for each), wires every detected client, verifies the
+  connection for real (semantic search present and a live write test), offers a
+  one-tap import of your ChatGPT or Claude history, and runs the doctor. Experts
+  skip the asking with `--yes` / `--all` / `--client`.
+- **Memory provenance by tool.** Each connected client gets its own agent identity,
+  so `brain_recall_memory` and `brain_context_pack` show which tool a memory came
+  from, and a cross-tool recall is credited ("recalled from Cursor's memory").
+  `brain_stats` and `brain_self_check` show a per-tool breakdown so compounding
+  across tools is visible.
+- **Surfacing modes and the self-check that talks.** `brain_set_mode` sets how
+  loudly Myco surfaces (silent, ambient, or audit; silent by default).
+  `brain_self_check` is a pull-only call that reports what is working, what is
+  awaiting your approval, and any problem with a concrete fix.
+
+### Fixed
+- `brain_context_pack` hybrid retrieval referenced an out-of-scope column that
+  could fail whenever the embedding path ran; the query now joins it correctly.
+
 ## [1.2.8] — 2026-06-18
 
 Version alignment only — no functional changes. The npm package was bumped to

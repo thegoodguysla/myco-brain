@@ -13,6 +13,7 @@ import {
   buildAttribution,
   type AttributionHint,
 } from "./attribution.js";
+import { resolveSourceAgents } from "./agent-provenance.js";
 
 // Count at most 101 rows — enough to place the workspace in a decay tier without
 // a full count(*) scan on a large table.
@@ -42,7 +43,8 @@ export async function hyobjectSavedAt(client: pg.PoolClient, hyobjectId: string)
 export async function computeAttribution(
   client: pg.PoolClient,
   workspaceId: string,
-  top: { hyobject_id: string; name: string | null } | undefined
+  top: { hyobject_id: string; name: string | null; agent_id?: string | null } | undefined,
+  callerAgentId?: string
 ): Promise<AttributionHint | null> {
   const cfg = resolveAttributionConfig();
   if (!cfg.enabled || !top) return null;
@@ -50,12 +52,23 @@ export async function computeAttribution(
   const tier = attributionTier(count, cfg.thresholds);
   if (tier === "silent") return null;
   const savedAt = await hyobjectSavedAt(client, top.hyobject_id);
+
+  // Cross-agent credit: when the top memory came from a DIFFERENT agent than the
+  // caller, resolve that agent's label so the hint can name it ("…from Cursor's
+  // memory"). Same-agent or unknown -> no label, neutral "your memory" credit.
+  let sourceAgentLabel: string | null = null;
+  if (top.agent_id && top.agent_id !== callerAgentId) {
+    const agents = await resolveSourceAgents(client, workspaceId, [top.agent_id]);
+    sourceAgentLabel = agents.get(top.agent_id)?.label ?? null;
+  }
+
   return buildAttribution({
     tier,
     topMemoryName: top.name,
     savedAt,
     materiallyUsed: true,
     whyAvailable: true,
+    sourceAgentLabel,
   });
 }
 

@@ -16,6 +16,11 @@ import { activeEmbeddingTable } from "../embed.js";
 import { hyobjectVisibleSql } from "../sharing.js";
 import { type AttributionHint } from "../attribution.js";
 import { computeAttribution } from "../attribution-db.js";
+import {
+  resolveSourceAgents,
+  attachSourceAgent,
+  type SourceAgent,
+} from "../agent-provenance.js";
 
 export const RecallMemoryInput = z.object({
   query: z.string().min(1).describe("Natural language query for recall"),
@@ -64,6 +69,9 @@ interface MemoryChunk {
   text: string;
   score: number;
   agent_id: string | null;
+  // Which client/agent saved this memory ("Claude Code", "Cursor"), or null when
+  // unknown. Lets the agent surface "this came from Cursor". See agent-provenance.
+  source_agent?: SourceAgent | null;
 }
 
 interface EntityHit {
@@ -112,10 +120,18 @@ export async function recallMemory(
     );
 
     const returned = finalChunks.slice(0, input.limit);
-    const attribution = await computeAttribution(client, ctx.workspaceId, returned[0]);
+    // Stamp each memory with the agent that saved it, and let attribution name a
+    // cross-agent source on the top hit ("…from Cursor's memory").
+    const sourceAgents = await resolveSourceAgents(
+      client,
+      ctx.workspaceId,
+      returned.map((c) => c.agent_id)
+    );
+    const memories = attachSourceAgent(returned, sourceAgents);
+    const attribution = await computeAttribution(client, ctx.workspaceId, returned[0], ctx.actorId);
 
     return {
-      memories: returned,
+      memories,
       entities,
       session_notes: sessionNotes,
       query_meta: {

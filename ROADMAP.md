@@ -6,7 +6,7 @@ direction, not a contract. Issues and PRs that move these forward are welcome.
 
 ## Now — shipping today
 
-- **Self-hosted MCP memory server** — 11 tools over MCP, backed by your own
+- **Self-hosted MCP memory server** — 13 tools over MCP, backed by your own
   Postgres 16 + pgvector. Boots with one `docker compose up`.
 - **Keyless full-text search & ingestion** — BM25 search and document ingestion
   work with zero API keys.

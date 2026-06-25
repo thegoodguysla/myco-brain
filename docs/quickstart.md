@@ -37,9 +37,19 @@ docker compose config
 
 Expected result: compose config renders successfully and all three services are present.
 
-## 3. Connect Claude Desktop
+## 3. Connect your client
 
-Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+**Guided (recommended).** One command wires your client, runs pre-flight checks
+with a fix for each, verifies a real write to your database, and offers to import
+your ChatGPT or Claude export:
+
+```bash
+npx -y -p @mycobrain/mcp-server mycobrain-setup
+```
+
+It detects Claude Code, Claude Desktop, Cursor, Codex, or Windsurf and walks you
+through each step. Prefer to wire it by hand for Claude Desktop? Add this to
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -135,7 +145,7 @@ source chain, and `brain_stats` shows how much of your memory is source-backed.
 
 ## What You Get
 
-The MCP server exposes 11 tools:
+The MCP server exposes 13 tools:
 
 - `brain_context_pack`
 - `brain_search`
@@ -148,3 +158,5 @@ The MCP server exposes 11 tools:
 - `brain_recall_memory`
 - `brain_get_related`
 - `brain_stats`
+- `brain_set_mode`
+- `brain_self_check`

@@ -28,6 +28,8 @@ export const RUNTIME_CONTRACT = `Myco is not a notepad. It is an adjudication en
 - A claim with no document? brain_propose_fact (waits in review; promoted by an approval or a later corroborating source). About to rely on a fact? brain_why first.
 - brain_save_memory is your PRIVATE scratchpad - ungated, never extracted, never workspace truth. Never cite it.
 
+Showing your work: Myco runs SILENT by default - work in the background, do not narrate it. The user sets the volume in plain language ("run silently" / "just confirm it's working" / "show your sources, this is for a client") - call brain_set_mode to honor it (persist:false for one task only). In ambient/audit, show the brain_context_pack "surfacing.heartbeat" line verbatim once (its count is the brain's, never estimate one). At session start in ambient/audit, or whenever the user asks "how's the brain?" or something seems off, call brain_self_check and surface its problems and pending approvals - each carries a fix. Present a pending durable write or a superseded fact as a choice with the one-clause reason; never invent the resolution.
+
 The agent that feeds the engine well gets a workspace that grows more certain over time. The agent that dumps assertions gets noise.`;
 
 export function renderAgentInstructions(serverName: string = DEFAULT_SERVER_NAME): string {
@@ -145,6 +147,53 @@ it skips every safeguard the engine exists to provide. Do not use it to:
 
 Use it only for genuinely private, agent-local working notes ("I already checked
 the staging logs this session") that no one else should see or cite.
+
+## Which tool when (quick decisions)
+
+Reading:
+- New task, or "what do we know about X?" -> brain_context_pack (assembles chunks,
+  entities, people, and relations in one call). This is the default first move.
+- A targeted lookup over sources -> brain_search. Time-sensitive ("latest",
+  "current", "what changed") -> pass reranker:"recency".
+- "Why do we believe X / since when / who says?" -> brain_why.
+- Walk relationships from an entity -> brain_neighbors (fast, 1-2 hops) or
+  brain_get_related (confidence-filtered, provenance-backed).
+- "What did I note earlier?" (your own private notes only) -> brain_recall_memory.
+
+Writing (climb from the top of the ladder):
+- Have a source? -> brain_ingest (builds the graph, attaches provenance).
+- A claim with no source? -> brain_propose_fact (enters the review queue).
+- A private note for this session only? -> brain_save_memory (never shared/cited).
+- A breadcrumb for the current thread? -> brain_annotate.
+
+## Showing your work without the noise (surfacing)
+
+Myco is SILENT by default: it works in the background and you do not narrate it.
+Three modes, which the user dials in plain language (you call brain_set_mode):
+- silent (default) - invisible, ~0 extra tokens. "run silently" / "turn off stats".
+- ambient - one short status line when memory shaped the answer. "just confirm
+  it's working".
+- audit - show the source chain on the facts you used; gate durable writes. "show
+  your sources" / "this is for a client / legal / financial". Use persist:false to
+  apply it to one task; persist:true makes it the workspace default.
+
+How to surface, by mode:
+- It's working (heartbeat): in ambient/audit the brain_context_pack response carries
+  surfacing.heartbeat - show that one line verbatim, once per session (the numbers
+  are the brain's, never estimate them). On the first session in a fresh workspace,
+  show it once even before the user asks, so they see memory engage - then fall quiet.
+- I need you to approve this: durable writes of unknown kinds and supersessions wait
+  in a review queue. Call brain_self_check (at session start in ambient/audit, or when
+  something seems off) and surface its "pending" items with source + confidence and a
+  Save / Skip choice - unapproved, new facts of that kind stall.
+- I found a problem, here's the fix: brain_self_check returns "problems" (semantic
+  search off, embeddings or extraction behind, approvals blocking), each with a
+  concrete fix. Surface the problem and offer to run the fix. Never hide a degraded
+  state behind a confident answer.
+
+Token discipline: brain_self_check, brain_why, and brain_stats are PULL-ONLY - call
+them when they earn their cost, never dump them into every turn. In silent mode,
+surface nothing.
 
 The agent that feeds the engine well gets a workspace that grows more certain
 over time. The agent that dumps assertions gets noise.

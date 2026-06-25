@@ -50,6 +50,8 @@ import { saveMemory, SaveMemoryInput } from "./tools/save-memory.js";
 import { recallMemory, RecallMemoryInput } from "./tools/recall-memory.js";
 import { getRelated, GetRelatedInput } from "./tools/get-related.js";
 import { stats, StatsInput } from "./tools/stats.js";
+import { setMode, SetModeInput } from "./tools/set-mode.js";
+import { selfCheck, SelfCheckInput } from "./tools/check.js";
 import { getRetrievalObservabilitySnapshot } from "./retrieval-observability.js";
 
 // ---------------------------------------------------------------------------
@@ -326,6 +328,45 @@ export const TOOLS: Tool[] = [
       },
     },
   },
+  {
+    name: "brain_set_mode",
+    description:
+      "Set how visible Myco is (and optionally its scope). silent = invisible, ~0 tokens (default); ambient = one cheap status line when memory shaped the answer; audit = full provenance, for client/legal/financial work. Call this on a user visibility instruction: 'run silently'/'turn off stats' -> silent; 'just confirm it's working' -> ambient; 'show your sources'/'this is for a client' -> audit. Use persist:false for a one-off task ('audit THIS'); persist:true (default) saves it as the workspace default so it follows the user across clients.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        mode: {
+          type: "string",
+          enum: ["silent", "ambient", "audit"],
+          description: "Visibility mode.",
+        },
+        scope: {
+          type: "object",
+          properties: { project: { type: ["string", "null"] } },
+          description: "Optional: narrow what Myco draws on (e.g. a project).",
+        },
+        persist: {
+          type: "boolean",
+          description:
+            "Save as workspace default (true, default) vs this session only (false).",
+        },
+      },
+    },
+  },
+  {
+    name: "brain_self_check",
+    description:
+      "Agent-callable health + attention check (the self-check that talks). Returns structured signals: working (live document/chunk/embedding counts = 'it's working'), pending (the review backlog awaiting the user's approval), and problems (semantic search off, embeddings/extraction behind, approvals blocking) each with a concrete fix. Pull-only and token-cheap. Call it at the start of a session in ambient/audit mode, or whenever the user asks 'how's the brain?' or something seems off. Surface problems + pending approvals to the user; never invent numbers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pending_limit: {
+          type: "number",
+          description: "Max pending approvals to return inline (default 5).",
+        },
+      },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -471,6 +512,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const input = StatsInput.parse(rawArgs);
         const result = await withLogging(name, ctx.workspaceId, ctx.actorId, rawArgs, () =>
           stats(ctx, input)
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "brain_set_mode": {
+        const input = SetModeInput.parse(rawArgs);
+        const result = await withLogging(name, ctx.workspaceId, ctx.actorId, rawArgs, () =>
+          setMode(ctx, input)
+        );
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "brain_self_check": {
+        const input = SelfCheckInput.parse(rawArgs);
+        const result = await withLogging(name, ctx.workspaceId, ctx.actorId, rawArgs, () =>
+          selfCheck(ctx, input)
         );
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }

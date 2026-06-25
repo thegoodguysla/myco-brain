@@ -18,7 +18,7 @@
 - **Source-traceable.** Every fact traces to the document it came from (`brain_why`) — no trust-me summaries.
 - **Trust that compounds.** Independent corroboration _raises_ a fact's confidence; a contradiction _supersedes_ it — kept and audited, never silently overwritten.
 - **Keyless & local-first.** Full-text + semantic search and the knowledge graph all run with zero hosted dependency — add an Anthropic key only for the most accurate graph.
-- **Yours.** Apache-2.0, plain Postgres tables, 11 MCP tools. Works with Claude, Cursor, Windsurf, Continue, Zed.
+- **Yours.** Apache-2.0, plain Postgres tables, 13 MCP tools. Works with Claude, Cursor, Windsurf, Continue, Zed.
 
 **Who it's for:** **dev teams** running agents that need one shared memory · **agencies** needing hard per-client isolation · **anyone** who wants their assistant to remember across sessions — import your ChatGPT / Claude history (from your data export) and your AI knows you on day one.
 
@@ -353,17 +353,19 @@ npx -y -p @mycobrain/mcp-server mycobrain-doctor --fix
 
 ### Connect your client
 
-**Fastest — one command** connects your client and runs onboarding:
+**Recommended — guided setup.** One command walks you through connecting an
+agent, with consent at every step:
 
 ```bash
-npx @mycobrain/install
+npx -y -p @mycobrain/mcp-server mycobrain-setup
 ```
 
-It detects your MCP client (Claude Code, Claude Desktop, Cursor, Codex, Windsurf)
-and writes the right config, or pass `--client <name>`, `--all`, or `--print`. It
-then **asks before indexing** the current repo (decline and run
-`mycobrain-onboard --tour` for a throwaway sample instead). The manual paths are
-below.
+It runs pre-flight checks (each with an offered fix), verifies pgvector and a
+real write to your database, wires up your MCP client (Claude Code, Claude
+Desktop, Cursor, Codex, Windsurf), and offers a one-tap import of your ChatGPT
+or Claude data export if the zip is already in `~/Downloads`. Each connected
+client gets its own agent identity, so later recalls show which tool a memory
+came from. Prefer to drive it yourself? The manual paths are below.
 
 **Claude Code** — by hand (uses the quickstart stack's seeded, public localdev
 credentials):
@@ -609,7 +611,7 @@ relative to the repo root.)
 | New types are proposed (and auto-promote only when corroborated + opted-in) | `npm run test:dynamic-schema` · `npm run test:schema-promotion` |
 | Strict curation mode blocks all auto-promotion | `npm run test:strict-mode` |
 | Private documents are private | `npm run test:sharing` |
-| All 11 tools fit in your context (~1.9K tokens, not bloat) | `npm run audit:tokens` |
+| All 13 tools fit in your context (~2.5K tokens, not bloat) | `npm run audit:tokens` |
 | Agency: Client A can't read Client B (workspace RLS) | `npm run test:agency` |
 | Reviewing a proposal actually promotes/rejects it | `npm run test:review` |
 | Read-only REST API: auth, read-only, DoS-capped | `npm run test:rest` |
@@ -638,7 +640,7 @@ path is programmatic, and LLMs assist without becoming the memory store.**
 
 ## Tool Surface
 
-Myco Brain exposes 11 MCP tools:
+Myco Brain exposes 13 MCP tools:
 
 - `brain_context_pack`
 - `brain_search`
@@ -651,6 +653,8 @@ Myco Brain exposes 11 MCP tools:
 - `brain_recall_memory`
 - `brain_get_related`
 - `brain_stats`
+- `brain_set_mode`
+- `brain_self_check`
 
 Full inputs, outputs, and examples for each tool: **[docs/api-reference.md](./docs/api-reference.md)**.
 

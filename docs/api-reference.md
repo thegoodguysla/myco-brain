@@ -1,6 +1,6 @@
 # Tool API Reference
 
-Myco Brain exposes 11 MCP tools. A connected agent calls them by name; you
+Myco Brain exposes 13 MCP tools. A connected agent calls them by name; you
 rarely call them by hand. This reference lists each tool's purpose, inputs, and
 what it returns.
 
@@ -143,3 +143,21 @@ Propose a new entity or relationship into the review queue.
 - Relation: `subject_kind`/`subject_id`, `object_kind`/`object_id`, `predicate` or `relation_type_id`, `confidence`.
 
 **Returns:** `{ proposal_id, state }`. Confident proposals can auto-promote; otherwise they await review.
+
+## Surfacing & self-check
+
+### `brain_set_mode`
+Set how loudly Myco surfaces that memory engaged. Silent by default.
+
+- `mode` (string: `silent` | `ambient` | `audit`). silent = invisible, ~0 tokens; ambient = one cheap status line when a memory shaped the answer; audit = full provenance, for client/legal/financial work.
+- `scope` (object, optional): `{ project }` to narrow what Myco draws on; `null` clears it.
+- `persist` (boolean, default `true`): `true` saves it as the workspace default so it follows you across clients; `false` applies to this session only.
+
+**Returns:** `{ mode, persisted }`.
+
+### `brain_self_check`
+Pull-only health check: the "self-check that talks." Costs tokens only when invoked, so call it at session start (in ambient/audit) or when asked "how's the brain?".
+
+- `pending_limit` (number, default `5`, max `25`): max pending approvals to return inline.
+
+**Returns:** `{ mode, working, pending, problems, summary }`. `working` reports live document/chunk/embedded counts plus a per-source-agent breakdown (`by_source`); `pending` lists items awaiting your approval; `problems` is a list of `{ id, severity, title, detail, fix }` (for example, semantic search off, embeddings behind, extraction backlog), each with a concrete fix.

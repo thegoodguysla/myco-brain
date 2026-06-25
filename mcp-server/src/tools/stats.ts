@@ -12,6 +12,7 @@
 import { z } from "zod";
 import type pg from "pg";
 import { withSession, type SessionContext } from "../db.js";
+import { agentMemoryBreakdown, type AgentBreakdownEntry } from "../agent-provenance.js";
 
 export const StatsInput = z.object({
   workspace_id: z.string().optional(),
@@ -69,6 +70,9 @@ export interface StatsResult {
   agents: {
     registered: number;
     session_notes: number;
+    // Per-source-agent memory counts ("30 Claude Code, 8 Cursor, 4 Codex") —
+    // makes cross-agent compounding visible. Empty when nothing is attributed.
+    by_source: AgentBreakdownEntry[];
   };
   summary: string;
 }
@@ -196,6 +200,7 @@ export async function stats(
       client,
       "SELECT count(*)::int AS n FROM agent_session_notes"
     );
+    const bySource = await agentMemoryBreakdown(client, ctx.workspaceId);
 
     const schemaClause =
       schemaTypesPending > 0
@@ -245,7 +250,7 @@ export async function stats(
         writes_idempotency_keyed: writesKeyed,
         dead_lettered: deadLettered,
       },
-      agents: { registered: agentsRegistered, session_notes: sessionNotes },
+      agents: { registered: agentsRegistered, session_notes: sessionNotes, by_source: bySource },
       summary,
     };
   });

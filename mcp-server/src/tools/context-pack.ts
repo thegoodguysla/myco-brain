@@ -26,6 +26,16 @@ import {
 import { hyobjectVisibleSql } from "../sharing.js";
 import { type AttributionHint } from "../attribution.js";
 import { computeAttribution, sessionGreeting } from "../attribution-db.js";
+import {
+  resolveSourceAgents,
+  attachSourceAgent,
+  type SourceAgent,
+} from "../agent-provenance.js";
+import {
+  buildSurfacingEnvelope,
+  type SurfacingEnvelope,
+} from "../surfacing.js";
+import { resolveEffectiveMode } from "../surfacing-store.js";
 
 // True once the first context_pack of this server process has run. The MCP stdio
 // process spans a client session, so "first call of the process" is a no-migration
@@ -94,6 +104,9 @@ export interface ContextPackResult {
   attribution?: AttributionHint | null;
   // One-line pushed-stats greeting, only on the first context_pack of a session.
   session_greeting?: string | null;
+  // Compact, token-cheap surfacing envelope: the signal the LLM reads to decide
+  // whether/how loudly to surface that memory engaged. Silent by default.
+  surfacing: SurfacingEnvelope;
   retrieval_metadata: {
     protocol_version: "2026-05-15";
     query_mode: "full_text" | "hybrid";
@@ -143,6 +156,10 @@ interface ChunkResult {
   token_count?: number | null;
   score: number;
   storage_uri: string | null;
+  agent_id: string | null;
+  // Which client/agent saved this chunk's document ("Claude Code", "Cursor"),
+  // or null when unknown. See agent-provenance.
+  source_agent?: SourceAgent | null;
 }
 
 interface EntityResult {
@@ -274,16 +291,30 @@ export async function contextPack(
       }))
     );
 
+      // Stamp each chunk with the agent that saved its document, and let the
+      // credit name a cross-agent source on the top hit.
+      const sourceAgents = await resolveSourceAgents(
+        client,
+        ctx.workspaceId,
+        chunks.map((c) => c.agent_id)
+      );
+      chunks = attachSourceAgent(chunks, sourceAgents);
+
       const attribution = await computeAttribution(
         client,
         ctx.workspaceId,
-        chunks[0] ? { hyobject_id: chunks[0].hyobject_id, name: chunks[0].hyobject_name } : undefined
+        chunks[0]
+          ? { hyobject_id: chunks[0].hyobject_id, name: chunks[0].hyobject_name, agent_id: chunks[0].agent_id }
+          : undefined,
+        ctx.actorId
       );
       let session_greeting: string | null = null;
       if (!sessionGreeted) {
         sessionGreeted = true;
         session_greeting = await sessionGreeting(client, ctx.workspaceId);
       }
+
+      const surfacingMode = await resolveEffectiveMode(client, ctx.workspaceId);
 
       return {
         chunks,
@@ -297,6 +328,12 @@ export async function contextPack(
         },
         attribution,
         session_greeting,
+        surfacing: buildSurfacingEnvelope({
+          mode: surfacingMode,
+          factCount: chunks.length,
+          confidenceMean: metadataStats.confidence_stats.mean,
+          sourceTypes: metadataStats.source_statistics.source_types,
+        }),
         retrieval_metadata: {
           protocol_version: "2026-05-15" as const,
           query_mode: (input.embedding ? "hybrid" : "full_text") as "full_text" | "hybrid",
@@ -392,9 +429,11 @@ async function fetchChunks(
         r.text,
         c.token_count,
         r.rrf_score AS score,
-        h.storage_uri
+        h.storage_uri,
+        h.agent_id
       FROM rrf r
       JOIN hyobjects h ON h.hyobject_id = r.hyobject_id AND ${hyobjectVisibleSql("h")}
+      JOIN chunks c ON c.chunk_id = r.chunk_id
       ORDER BY rrf_score DESC
       LIMIT $2
     `;
@@ -435,7 +474,8 @@ async function fetchChunks(
       c.text,
       c.token_count,
       ts_rank(h.content_tsv, replace(plainto_tsquery('english', $1)::text, '&', '|')::tsquery) AS score,
-      h.storage_uri
+      h.storage_uri,
+      h.agent_id
     FROM chunks c
     JOIN hyobjects h ON h.hyobject_id = c.hyobject_id AND ${hyobjectVisibleSql("h")}
     WHERE h.content_tsv @@ replace(plainto_tsquery('english', $1)::text, '&', '|')::tsquery

@@ -295,7 +295,7 @@ function runClaudeAdd(opts: InstallOpts, scope: "user" | "project"): boolean {
 }
 
 // Wire a single client. Returns a human line describing what happened.
-function installClient(key: string, opts: InstallOpts, ctx: PathCtx): string {
+export function installClient(key: string, opts: InstallOpts, ctx: PathCtx): string {
   const def = findClient(key);
   if (!def) return `${C.red("✗")} ${key} ${C.dim("— unknown client")}`;
 
@@ -363,7 +363,7 @@ async function verifyStack(databaseUrl: string): Promise<{ ok: boolean; detail: 
   }
 }
 
-function detectInstalled(ctx: PathCtx): ClientDef[] {
+export function detectInstalled(ctx: PathCtx): ClientDef[] {
   return CLIENTS.filter((c) => c.detect && existsSync(c.detect(ctx)) && c.kind !== "print");
 }
 

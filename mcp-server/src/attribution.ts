@@ -64,6 +64,9 @@ export interface AttributionHint {
   /** brain_why can show the full provenance trail on demand. */
   why_available: boolean;
   saved_at: string | null;
+  /** The agent the top memory came from, when it differs from the caller
+   *  ("Cursor", "Claude Code"). Null for same-agent or unknown provenance. */
+  source_agent?: string | null;
 }
 
 export interface AttributionInput {
@@ -74,6 +77,9 @@ export interface AttributionInput {
   /** Did we actually return a memory that shaped the answer? */
   materiallyUsed: boolean;
   whyAvailable?: boolean;
+  /** Label of the agent that saved the top memory, when it is a DIFFERENT agent
+   *  than the caller — drives the cross-agent "came from Cursor" credit. */
+  sourceAgentLabel?: string | null;
 }
 
 /**
@@ -87,12 +93,17 @@ export function buildAttribution(input: AttributionInput): AttributionHint | nul
   const when = formatSavedAt(input.savedAt);
   const name = input.topMemoryName.trim();
   if (!name) return null;
-  const surface = `Recalled from your memory${when ? ` (saved ${when})` : ""}: ${name}`;
+  const from = input.sourceAgentLabel?.trim();
+  // When the top memory came from a different agent, name it — that's the
+  // cross-agent moment. Otherwise keep the neutral "your memory" credit.
+  const whose = from ? `${from}'s memory` : "your memory";
+  const surface = `Recalled from ${whose}${when ? ` (saved ${when})` : ""}: ${name}`;
   return {
     recalled_from_memory: true,
     surface_hint: surface,
     why_available: input.whyAvailable ?? true,
     saved_at: input.savedAt ?? null,
+    source_agent: from || null,
   };
 }
 
